@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dumbbell Fitness Tracker</title>
+  <!-- MediaPipe dependencies -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js" crossorigin="anonymous"></script>
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <!-- CSS -->
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <header>
+      <div class="logo">
+        <i class="fas fa-dumbbell"></i>
+        <h1>Dumbbell Fitness Tracker</h1>
+      </div>
+      <p class="tagline">Train with real-time pose detection</p>
+    </header>
+    
+    <div class="main-content">
+      <!-- Exercise Library - Now on the left -->
+      <div class="side-panel left-panel">
+        <div class="panel exercises-panel">
+          <div class="panel-header">
+            <h2><i class="fas fa-list"></i> Exercise Library</h2>
+          </div>
+          <div class="panel-body">
+            <div id="exercise-list" class="exercise-list"></div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Camera Section - Now in the middle -->
+      <div class="camera-section">
+        <!-- Only the canvas is visible, video is hidden but used for processing -->
+        <video class="input-video" autoplay playsinline></video>
+        <canvas class="output-canvas" width="640" height="480"></canvas>
+        <div class="camera-controls">
+          <button id="start-camera" class="btn"><i class="fas fa-video"></i> <span>Start Camera</span></button>
+        </div>
+        <!-- Rep Counter Section under camera -->
+        <div id="rep-counter-container" class="rep-counter-container">
+          <!-- Content will be populated by JavaScript when exercise starts -->
+        </div>
+      </div>
+      
+      <!-- Selected Exercise - Now on the right -->
+      <div class="side-panel right-panel">
+        <div class="panel details-panel">
+          <div class="panel-header">
+            <h2><i class="fas fa-clipboard-list"></i> Selected Exercise: <span id="current-exercise">None</span></h2>
+          </div>
+          <div class="panel-body">
+            <div id="exercise-details" class="exercise-details"></div>
+            <div class="action-buttons">
+              <button id="start-exercise" class="btn btn-primary" disabled><i class="fas fa-play"></i> Start Exercise</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <footer>
+      <p>&copy; 2023 Dumbbell Fitness Tracker | Built with MediaPipe</p>
+    </footer>
+  </div>
+  
+  <!-- JavaScript -->
+  <script src="exercises.js"></script>
+  <script src="script.js"></script>
+</body>
+</html> 
