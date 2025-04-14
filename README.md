@@ -97,10 +97,14 @@ A web-based fitness tracking application that uses MediaPipe's Holistic model to
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the Apache 2.0 License - see the LICENSE file for details.
 
 ## Acknowledgements
 
 - MediaPipe team for their incredible computer vision toolset
+<<<<<<< HEAD
 - Google AI for the Gemini API
 - Fitness experts for exercise form guidance 
+=======
+- Fitness experts for exercise form guidance 
+>>>>>>> a846c6aed6b88b0b1870448ad5700f6d256e7f16
