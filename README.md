@@ -1,6 +1,6 @@
 # Fitness Tracker with MediaPipe
 
-A web-based fitness tracking application that uses MediaPipe's Holistic model to track and analyze exercises in real-time.
+A web-based fitness tracking application that uses MediaPipe's Holistic model to track and analyze exercises in real-time, with AI-powered feedback via Google's Gemini API.
 
 ## Features
 
@@ -8,12 +8,14 @@ A web-based fitness tracking application that uses MediaPipe's Holistic model to
 - List of common exercises with instructions
 - Visual feedback for exercise form
 - Rep counting and exercise tracking
+- AI-powered exercise feedback with Google's Gemini API
 
 ## Prerequisites
 
 - Modern web browser (Chrome, Firefox, Edge, etc.)
 - Webcam
-- Internet connection (for loading MediaPipe models)
+- Internet connection (for loading MediaPipe models and Gemini API)
+- Gemini API key (free from Google AI Studio)
 
 ## Getting Started
 
@@ -23,7 +25,14 @@ A web-based fitness tracking application that uses MediaPipe's Holistic model to
    cd gym-coach
    ```
 
-2. Start a local server:
+2. Create a `.env` file in the root directory with your Gemini API key:
+   ```
+   gemini-apikey=YOUR_API_KEY_HERE
+   ```
+   
+   You can get a free Gemini API key from [Google AI Studio](https://aistudio.google.com/).
+
+3. Start a local server:
    You can use any local server. Here are a few options:
 
    Using Python:
@@ -39,8 +48,14 @@ A web-based fitness tracking application that uses MediaPipe's Holistic model to
    ```
    npx http-server
    ```
+   
+   Or use the provided script:
+   ```
+   chmod +x run.sh
+   ./run.sh
+   ```
 
-3. Open your browser and navigate to:
+4. Open your browser and navigate to:
    ```
    http://localhost:8000/
    ```
@@ -52,6 +67,7 @@ A web-based fitness tracking application that uses MediaPipe's Holistic model to
 3. Follow the instructions for the selected exercise.
 4. Click "Start Exercise" to begin tracking.
 5. Perform the exercise while following proper form as shown on screen.
+6. Receive AI-powered feedback on your form every 30 seconds.
 
 ## Supported Exercises
 
@@ -69,6 +85,7 @@ A web-based fitness tracking application that uses MediaPipe's Holistic model to
 - [MediaPipe](https://mediapipe.dev/) - For real-time pose detection
 - HTML5 Canvas - For visualization
 - Vanilla JavaScript - For application logic
+- [Google Gemini API](https://ai.google.dev/) - For AI-powered exercise feedback
 
 ## Future Improvements
 
@@ -85,4 +102,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Acknowledgements
 
 - MediaPipe team for their incredible computer vision toolset
+- Google AI for the Gemini API
 - Fitness experts for exercise form guidance 

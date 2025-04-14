@@ -157,6 +157,106 @@ header {
   color: #666;
 }
 
+/* Form Feedback Section */
+.form-feedback {
+  margin-top: 20px;
+  padding-top: 15px;
+  border-top: 1px solid var(--border-color);
+}
+
+.form-feedback h3 {
+  font-size: 18px;
+  margin-bottom: 15px;
+  color: var(--primary-color);
+  display: flex;
+  align-items: center;
+}
+
+.form-feedback h3 i {
+  margin-right: 8px;
+}
+
+.feedback-loading {
+  text-align: center;
+  padding: 15px;
+  background-color: #f5f5f5;
+  border-radius: 8px;
+  font-size: 16px;
+  color: var(--primary-color);
+  margin-bottom: 15px;
+}
+
+.feedback-loading i {
+  margin-right: 8px;
+  color: var(--primary-color);
+}
+
+.feedback-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.feedback-section {
+  background-color: #f9f9f9;
+  border-radius: 8px;
+  padding: 12px 15px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+  transition: all 0.3s ease;
+}
+
+.feedback-section:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.feedback-section h4 {
+  font-size: 15px;
+  margin-bottom: 8px;
+  color: var(--primary-color);
+  display: flex;
+  align-items: center;
+}
+
+.feedback-section h4 i {
+  margin-right: 8px;
+  font-size: 14px;
+}
+
+.feedback-section p {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #333;
+  margin: 0;
+}
+
+/* Highlight positive feedback */
+.feedback-section.good {
+  background-color: rgba(48, 195, 158, 0.1);
+  border-left: 4px solid var(--secondary-color);
+}
+
+/* Highlight needs improvement feedback */
+.feedback-section.needs-improvement {
+  background-color: rgba(255, 58, 94, 0.1);
+  border-left: 4px solid #ff3a5e;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.feedback-section {
+  animation: fadeIn 0.5s ease forwards;
+}
+
+.feedback-section:nth-child(1) { animation-delay: 0.1s; }
+.feedback-section:nth-child(2) { animation-delay: 0.2s; }
+.feedback-section:nth-child(3) { animation-delay: 0.3s; }
+.feedback-section:nth-child(4) { animation-delay: 0.4s; }
+
 /* Panel styling */
 .panel {
   background-color: var(--panel-bg);

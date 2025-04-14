@@ -232,7 +232,6 @@ const exercises = [
   }
 ];
 
-// Export the exercises array
-if (typeof module !== 'undefined') {
-  module.exports = { exercises };
-} 
+// Export both as default export and named export for compatibility
+export default exercises;
+export { exercises }; 
