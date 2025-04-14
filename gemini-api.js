@@ -26,7 +26,7 @@ class GeminiAPI {
       // If we couldn't get a key from .env, use the hardcoded fallback
       // In a production environment, you should handle this more securely
       console.warn('Could not load API key from .env file, using fallback method');
-      this.apiKey = 'AIzaSyBQ-WyMzirG-wMR0tTmI0VV68BTdpIN7j0'; // Fallback to the key in the .env file
+      this.apiKey = ''; // Fallback to the key in the .env file
       
       if (this.apiKey) {
         this.initialized = true;
@@ -39,7 +39,7 @@ class GeminiAPI {
     } catch (error) {
       console.error('Failed to initialize Gemini API:', error);
       // Try fallback method as a last resort
-      this.apiKey = 'AIzaSyBQ-WyMzirG-wMR0tTmI0VV68BTdpIN7j0';
+      this.apiKey = '';
       if (this.apiKey) {
         this.initialized = true;
         console.log('Gemini API initialized with emergency fallback key after error');
