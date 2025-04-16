@@ -9,10 +9,14 @@ const exerciseDetailsContainer = document.getElementById('exercise-details');
 const startExerciseButton = document.getElementById('start-exercise');
 const repCounterContainer = document.getElementById('rep-counter-container');
 
-// Import the Gemini API module
+// Import modules
 import { geminiAPI } from './gemini-api.js';
-// Import the exercises array
 import exercisesModule, { exercises } from './exercises.js';
+import FormVisualizer from './visualization.js';
+import AudioCoach from './audio-coach.js';
+import AdvancedAnalytics from './advanced-analytics.js';
+import documentationManager from './documentation.js';
+import { exerciseMetrics, determineFeedbackSeverity, smoothAngle, calculateAngle } from './exercise-metrics.js';
 
 // Global variables
 let camera = null;
@@ -22,9 +26,35 @@ let isExerciseActive = false;
 let lastPoseData = null;
 let repCount = 0;
 let repState = 'waiting'; // waiting, up, down
+let previousRepState = 'waiting'; // Track previous rep state for transitions
 let exerciseData = []; // Store exercise data for analysis
 let lastFeedbackUpdate = Date.now();
 let feedbackInterval = 30000; // 30 seconds between feedback updates
+
+// Angle history for smoothing
+let angleHistory = {
+  rightElbow: [],
+  leftElbow: [],
+  rightShoulder: [],
+  leftShoulder: [],
+  rightKnee: [],
+  leftKnee: []
+};
+
+// State machine timeout handling
+let stateTimeout = {
+  state: null,
+  startTime: null,
+  maxDuration: 3000 // 3 seconds max in any state
+};
+
+// Debug mode for rep counting
+let debugRepCounting = true;
+
+// Visualization, audio feedback, and analytics
+let visualizer = null;
+let audioCoach = null;
+let analytics = null;
 
 // Initialize the application
 function initApp() {
@@ -41,9 +71,155 @@ function initApp() {
   // Use either the default export or named export
   const exerciseList = exercisesModule || exercises;
   
+  // Initialize visualization
+  visualizer = new FormVisualizer(canvasElement, canvasCtx);
+  
+  // Initialize audio coach
+  audioCoach = new AudioCoach({
+    enabled: true,
+    feedbackFrequency: 'normal'
+  });
+  
+  // Initialize advanced analytics
+  analytics = new AdvancedAnalytics();
+  analytics.loadExerciseData(); // Load any existing data
+  
+  // Initialize documentation manager
+  documentationManager.initialize();
+  
   renderExerciseList(exerciseList);
   setupEventListeners();
   initializeMediaPipe();
+  
+  // Add visualization and audio controls to the UI
+  addVisualizationControls();
+  addAudioControls();
+  addAnalyticsControls();
+}
+
+// Add visualization controls to the UI
+function addVisualizationControls() {
+  const controlsContainer = document.createElement('div');
+  controlsContainer.className = 'visualization-controls';
+  controlsContainer.innerHTML = `
+    <h3><i class="fas fa-eye"></i> Visualization Options</h3>
+    <div class="control-group">
+      <label class="toggle-switch">
+        <input type="checkbox" id="show-guides" checked>
+        <span class="toggle-slider"></span>
+        <span class="toggle-label">Movement Guides</span>
+      </label>
+    </div>
+    <div class="control-group">
+      <label class="toggle-switch">
+        <input type="checkbox" id="show-corrections" checked>
+        <span class="toggle-slider"></span>
+        <span class="toggle-label">Form Corrections</span>
+      </label>
+    </div>
+    <div class="control-group">
+      <label class="toggle-switch">
+        <input type="checkbox" id="show-heatmap">
+        <span class="toggle-slider"></span>
+        <span class="toggle-label">Muscle Heatmap</span>
+      </label>
+    </div>
+  `;
+  
+  // Add to the camera section
+  const cameraSection = document.querySelector('.camera-section');
+  cameraSection.appendChild(controlsContainer);
+  
+  // Set up event listeners for visualization controls
+  document.getElementById('show-guides').addEventListener('change', (e) => {
+    visualizer.showGuides = e.target.checked;
+  });
+  
+  document.getElementById('show-corrections').addEventListener('change', (e) => {
+    visualizer.showCorrections = e.target.checked;
+  });
+  
+  document.getElementById('show-heatmap').addEventListener('change', (e) => {
+    visualizer.showHeatmap = e.target.checked;
+  });
+}
+
+// Add audio controls to the UI
+function addAudioControls() {
+  const controlsContainer = document.createElement('div');
+  controlsContainer.className = 'audio-controls';
+  controlsContainer.innerHTML = `
+    <h3><i class="fas fa-volume-up"></i> Audio Feedback</h3>
+    <div class="control-group">
+      <label class="toggle-switch">
+        <input type="checkbox" id="audio-enabled" checked>
+        <span class="toggle-slider"></span>
+        <span class="toggle-label">Enable Voice Coach</span>
+      </label>
+    </div>
+    <div class="control-group">
+      <label for="feedback-frequency">Feedback Frequency:</label>
+      <select id="feedback-frequency" class="select-control">
+        <option value="minimal">Minimal</option>
+        <option value="normal" selected>Normal</option>
+        <option value="detailed">Detailed</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label for="voice-select">Voice:</label>
+      <select id="voice-select" class="select-control">
+        <option value="0">Default</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label for="volume-control">Volume:</label>
+      <input type="range" id="volume-control" min="0" max="1" step="0.1" value="1" class="range-control">
+    </div>
+  `;
+  
+  // Add to the camera section
+  const cameraSection = document.querySelector('.camera-section');
+  cameraSection.appendChild(controlsContainer);
+  
+  // Set up event listeners for audio controls
+  document.getElementById('audio-enabled').addEventListener('change', (e) => {
+    audioCoach.setEnabled(e.target.checked);
+  });
+  
+  document.getElementById('feedback-frequency').addEventListener('change', (e) => {
+    audioCoach.updateVoiceSettings({ feedbackFrequency: e.target.value });
+  });
+  
+  document.getElementById('volume-control').addEventListener('input', (e) => {
+    audioCoach.updateVoiceSettings({ volume: parseFloat(e.target.value) });
+  });
+  
+  // Populate voice select when voices are loaded
+  const voiceSelect = document.getElementById('voice-select');
+  
+  // Function to populate voice options
+  function populateVoiceList() {
+    if (audioCoach.voices.length === 0) return;
+    
+    // Clear existing options
+    voiceSelect.innerHTML = '';
+    
+    // Add voices to select
+    audioCoach.voices.forEach((voice, index) => {
+      const option = document.createElement('option');
+      option.value = index;
+      option.textContent = `${voice.name} (${voice.lang})`;
+      voiceSelect.appendChild(option);
+    });
+  }
+  
+  // Initial population
+  setTimeout(populateVoiceList, 1000);
+  
+  // Update when voices change
+  voiceSelect.addEventListener('change', (e) => {
+    audioCoach.updateVoiceSettings({ voiceIndex: parseInt(e.target.value) });
+  });
 }
 
 // Render the list of exercises
@@ -114,100 +290,202 @@ function toggleCamera() {
 // Start the camera
 function startCamera() {
   if (!camera) {
-    camera = new Camera(videoElement, {
-      onFrame: async () => {
-        await holistic.send({image: videoElement});
-      },
-      width: 640,
-      height: 480
-    });
-    camera.start();
+    // Check if we're in a secure context (HTTPS or localhost)
+    if (!window.isSecureContext) {
+      showCameraError("Camera access requires a secure context (HTTPS or localhost).");
+      return;
+    }
+    
+    // Check if the browser supports mediaDevices API
+    if (!navigator.mediaDevices) {
+      showCameraError("Your browser doesn't support camera access. Try using Chrome, Firefox, or Edge.");
+      return;
+    }
+    
+    try {
+      camera = new Camera(videoElement, {
+        onFrame: async () => {
+          await holistic.send({image: videoElement});
+        },
+        width: 640,
+        height: 480
+      });
+      
+      camera.start().catch(error => {
+        console.error("Error starting camera:", error);
+        showCameraError("Could not access your camera. Please check permissions and try again.");
+        camera = null;
+      });
+    } catch (error) {
+      console.error("Error initializing camera:", error);
+      showCameraError("Failed to initialize camera. Please check your device and browser settings.");
+    }
   }
+}
+
+// Display camera error message
+function showCameraError(message) {
+  // Reset camera button state
+  const buttonText = startCameraButton.querySelector('span');
+  const buttonIcon = startCameraButton.querySelector('i');
+  buttonText.textContent = 'Start Camera';
+  buttonIcon.className = 'fas fa-video';
+  
+  // Show error message
+  const errorDiv = document.createElement('div');
+  errorDiv.className = 'camera-error';
+  errorDiv.innerHTML = `
+    <div class="error-icon"><i class="fas fa-exclamation-triangle"></i></div>
+    <p>${message}</p>
+    <p class="error-help">Make sure you've granted camera permissions and are using a supported browser.</p>
+  `;
+  
+  // Replace canvas with error message
+  canvasElement.style.display = 'none';
+  const cameraSection = document.querySelector('.camera-section');
+  
+  // Remove any existing error message
+  const existingError = cameraSection.querySelector('.camera-error');
+  if (existingError) {
+    cameraSection.removeChild(existingError);
+  }
+  
+  // Insert error message before the camera controls
+  const cameraControls = cameraSection.querySelector('.camera-controls');
+  cameraSection.insertBefore(errorDiv, cameraControls);
 }
 
 // Initialize MediaPipe Holistic
 function initializeMediaPipe() {
-  holistic = new Holistic({
-    locateFile: (file) => {
-      return `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`;
-    }
-  });
-  
-  holistic.setOptions({
-    modelComplexity: 1,
-    smoothLandmarks: true,
-    enableSegmentation: true,
-    smoothSegmentation: true,
-    refineFaceLandmarks: false,
-    minDetectionConfidence: 0.5,
-    minTrackingConfidence: 0.5
-  });
-  
-  holistic.onResults(onResults);
+  try {
+    holistic = new Holistic({
+      locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`;
+      }
+    });
+    
+    holistic.setOptions({
+      modelComplexity: 1,
+      smoothLandmarks: true,
+      enableSegmentation: true,
+      smoothSegmentation: true,
+      refineFaceLandmarks: false,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+    
+    holistic.onResults(onResults);
+    
+    // Add error handling
+    holistic.onError = (error) => {
+      console.error('MediaPipe Holistic error:', error);
+      showCameraError("Error processing camera feed. Please refresh the page and try again.");
+      
+      // Stop the camera if there's an error
+      if (camera) {
+        camera.stop();
+        camera = null;
+        
+        // Update button state
+        const buttonText = startCameraButton.querySelector('span');
+        const buttonIcon = startCameraButton.querySelector('i');
+        buttonText.textContent = 'Start Camera';
+        buttonIcon.className = 'fas fa-video';
+      }
+    };
+  } catch (error) {
+    console.error('Error initializing MediaPipe Holistic:', error);
+    showCameraError("Failed to initialize pose detection. Please check your browser compatibility and try again.");
+  }
 }
 
 // Process MediaPipe results
 function onResults(results) {
-  // Save the pose data for exercise analysis
-  if (results.poseLandmarks) {
-    lastPoseData = {
-      pose: results.poseLandmarks,
-      poseWorld: results.poseWorldLandmarks,
-      leftHand: results.leftHandLandmarks,
-      rightHand: results.rightHandLandmarks,
-      face: results.faceLandmarks,
-      timestamp: Date.now()
-    };
-  }
+  try {
+    // Save the pose data for exercise analysis
+    if (results.poseLandmarks) {
+      lastPoseData = {
+        pose: results.poseLandmarks,
+        poseWorld: results.poseWorldLandmarks,
+        leftHand: results.leftHandLandmarks,
+        rightHand: results.rightHandLandmarks,
+        face: results.faceLandmarks,
+        timestamp: Date.now()
+      };
+    }
   
-  // Clear the canvas
-  canvasCtx.save();
-  canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-  
-  // Draw the camera feed on the canvas
-  if (results.image) {
-    canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-  }
-  
-  // Draw the segmentation mask if available
-  if (results.segmentationMask) {
-    canvasCtx.globalCompositeOperation = 'source-in';
-    canvasCtx.fillStyle = 'rgba(0, 128, 255, 0.2)';
-    canvasCtx.drawImage(
-      results.segmentationMask,
-      0, 0, canvasElement.width, canvasElement.height
-    );
-    canvasCtx.globalCompositeOperation = 'source-over';
-  }
-  
-  // Draw the pose on the canvas
-  drawPose(results);
-  
-  // Analyze the exercise if active
-  if (isExerciseActive && selectedExercise && lastPoseData) {
-    const metrics = analyzeExercise();
+    // Clear the canvas
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
     
-    // Store the metrics for batch analysis
-    if (metrics) {
-      exerciseData.push(metrics);
+    // Draw the camera feed on the canvas - this is the primary element
+    if (results.image) {
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
     }
     
-    // Check if it's time to generate feedback
-    if (Date.now() - lastFeedbackUpdate >= feedbackInterval) {
-      generateExerciseFeedback(exerciseData);
-      lastFeedbackUpdate = Date.now();
-      exerciseData = []; // Reset data after sending for analysis
+    // Draw the pose landmarks on the camera feed - this is essential
+    drawPose(results);
+    
+    // Analyze the exercise if active
+    if (isExerciseActive && selectedExercise && lastPoseData) {
+      const metrics = analyzeExercise();
+      
+      // Store the metrics for batch analysis
+      if (metrics) {
+        exerciseData.push(metrics);
+        
+        // Update visualizer with latest data
+        if (visualizer) {
+          visualizer.update(
+            lastPoseData, 
+            metrics.formQuality, 
+            metrics.formIssues, 
+            selectedExercise.name
+          );
+          visualizer.render(metrics);
+        }
+        
+        // Provide audio feedback
+        if (audioCoach) {
+          try {
+            // Provide form feedback if there are issues
+            if (metrics.formIssues && metrics.formIssues.length > 0) {
+              audioCoach.provideFormFeedback(selectedExercise.name, metrics.formIssues);
+            }
+            
+            // Provide breathing cues based on rep state
+            audioCoach.provideBreathingCue(selectedExercise.name, repState);
+          } catch (error) {
+            console.warn('Error providing audio feedback:', error);
+            // Continue without audio feedback if there's an error
+          }
+        }
+      }
+      
+      // Check if it's time to generate feedback
+      if (Date.now() - lastFeedbackUpdate >= feedbackInterval) {
+        generateExerciseFeedback(exerciseData);
+        lastFeedbackUpdate = Date.now();
+        exerciseData = []; // Reset data after sending for analysis
+      }
     }
+    
+    canvasCtx.restore();
+  } catch (error) {
+    console.error('Error in onResults:', error);
+    // Continue processing to avoid crashing the camera feed
+    canvasCtx.restore();
   }
-  
-  canvasCtx.restore();
 }
 
 // Draw the pose landmarks on the canvas
 function drawPose(results) {
-  // Draw pose landmarks
+  // Draw pose landmarks - essential for exercise tracking
   if (results.poseLandmarks) {
+    // Draw connections between landmarks with improved visibility
     drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS, {color: '#3a86ff', lineWidth: 4});
+    
+    // Draw the landmarks themselves
     drawLandmarks(canvasCtx, results.poseLandmarks, {color: '#ff3a5e', lineWidth: 2});
     
     // If exercise is active, draw key joint angles for the selected exercise
@@ -216,22 +494,29 @@ function drawPose(results) {
     }
   }
   
-  // Draw hand landmarks
-  if (results.leftHandLandmarks) {
-    drawConnectors(canvasCtx, results.leftHandLandmarks, HAND_CONNECTIONS, {color: '#CC0000', lineWidth: 3});
-    drawLandmarks(canvasCtx, results.leftHandLandmarks, {color: '#00FF00', lineWidth: 1});
-  }
-  if (results.rightHandLandmarks) {
-    drawConnectors(canvasCtx, results.rightHandLandmarks, HAND_CONNECTIONS, {color: '#00CC00', lineWidth: 3});
-    drawLandmarks(canvasCtx, results.rightHandLandmarks, {color: '#FF0000', lineWidth: 1});
+  // Draw hand landmarks if needed for the exercise
+  if (selectedExercise && (selectedExercise.name.includes("Dumbbell") || selectedExercise.name.includes("Curl"))) {
+    if (results.leftHandLandmarks) {
+      drawConnectors(canvasCtx, results.leftHandLandmarks, HAND_CONNECTIONS, {color: '#CC0000', lineWidth: 3});
+      drawLandmarks(canvasCtx, results.leftHandLandmarks, {color: '#00FF00', lineWidth: 1});
+    }
+    if (results.rightHandLandmarks) {
+      drawConnectors(canvasCtx, results.rightHandLandmarks, HAND_CONNECTIONS, {color: '#00CC00', lineWidth: 3});
+      drawLandmarks(canvasCtx, results.rightHandLandmarks, {color: '#FF0000', lineWidth: 1});
+    }
   }
 }
 
-// Draw joint angles for the current exercise
+// Draw joint angles for the current exercise with enhanced visualization
 function drawJointAngles(landmarks) {
   if (!selectedExercise || !landmarks) return;
   
   const exerciseName = selectedExercise.name;
+  
+  // Draw rep counting debug info if enabled
+  if (debugRepCounting) {
+    drawRepCountingDebugInfo();
+  }
   
   if (exerciseName === "Dumbbell Bicep Curls") {
     // Draw elbow angle for bicep curls
@@ -240,14 +525,24 @@ function drawJointAngles(landmarks) {
     const rightWrist = landmarks[16];    // Right wrist
     
     if (rightShoulder && rightElbow && rightWrist) {
-      const angle = calculateAngle(
+      // Calculate raw angle
+      const rawAngle = calculateAngle(
         [rightShoulder.x, rightShoulder.y],
         [rightElbow.x, rightElbow.y],
         [rightWrist.x, rightWrist.y]
       );
       
-      // Draw the angle on the canvas
-      drawAngle(rightElbow.x, rightElbow.y, angle, angle < 90 ? '#30c39e' : '#ff3a5e');
+      // Store in history for smoothing
+      angleHistory.rightElbow.push(rawAngle);
+      if (angleHistory.rightElbow.length > 20) { // Keep last 20 frames
+        angleHistory.rightElbow.shift();
+      }
+      
+      // Get smoothed angle
+      const smoothedAngle = smoothAngle(rawAngle, angleHistory.rightElbow);
+      
+      // Draw the angle on the canvas with ideal range indicator
+      drawAngleWithRange(rightElbow.x, rightElbow.y, smoothedAngle, [40, 160], "Right");
     }
     
     // Also check left arm
@@ -256,14 +551,24 @@ function drawJointAngles(landmarks) {
     const leftWrist = landmarks[15];    // Left wrist
     
     if (leftShoulder && leftElbow && leftWrist) {
-      const angle = calculateAngle(
+      // Calculate raw angle
+      const rawAngle = calculateAngle(
         [leftShoulder.x, leftShoulder.y],
         [leftElbow.x, leftElbow.y],
         [leftWrist.x, leftWrist.y]
       );
       
-      // Draw the angle on the canvas
-      drawAngle(leftElbow.x, leftElbow.y, angle, angle < 90 ? '#30c39e' : '#ff3a5e');
+      // Store in history for smoothing
+      angleHistory.leftElbow.push(rawAngle);
+      if (angleHistory.leftElbow.length > 20) {
+        angleHistory.leftElbow.shift();
+      }
+      
+      // Get smoothed angle
+      const smoothedAngle = smoothAngle(rawAngle, angleHistory.leftElbow);
+      
+      // Draw the angle on the canvas with ideal range indicator
+      drawAngleWithRange(leftElbow.x, leftElbow.y, smoothedAngle, [40, 160], "Left");
     }
   } 
   else if (exerciseName === "Dumbbell Shoulder Press") {
@@ -273,14 +578,24 @@ function drawJointAngles(landmarks) {
     const rightWrist = landmarks[16];    // Right wrist
     
     if (rightShoulder && rightElbow && rightWrist) {
-      const angle = calculateAngle(
+      // Calculate raw angle
+      const rawAngle = calculateAngle(
         [rightShoulder.x, rightShoulder.y],
         [rightElbow.x, rightElbow.y],
         [rightWrist.x, rightWrist.y]
       );
       
-      // Draw the angle on the canvas
-      drawAngle(rightElbow.x, rightElbow.y, angle, angle > 150 ? '#30c39e' : '#ff3a5e');
+      // Store in history for smoothing
+      angleHistory.rightElbow.push(rawAngle);
+      if (angleHistory.rightElbow.length > 20) {
+        angleHistory.rightElbow.shift();
+      }
+      
+      // Get smoothed angle
+      const smoothedAngle = smoothAngle(rawAngle, angleHistory.rightElbow);
+      
+      // Draw the angle on the canvas with ideal range indicator
+      drawAngleWithRange(rightElbow.x, rightElbow.y, smoothedAngle, [100, 180], "Right");
     }
     
     // Also check left arm
@@ -289,34 +604,121 @@ function drawJointAngles(landmarks) {
     const leftWrist = landmarks[15];    // Left wrist
     
     if (leftShoulder && leftElbow && leftWrist) {
-      const angle = calculateAngle(
+      // Calculate raw angle
+      const rawAngle = calculateAngle(
         [leftShoulder.x, leftShoulder.y],
         [leftElbow.x, leftElbow.y],
         [leftWrist.x, leftWrist.y]
       );
       
-      // Draw the angle on the canvas
-      drawAngle(leftElbow.x, leftElbow.y, angle, angle > 150 ? '#30c39e' : '#ff3a5e');
+      // Store in history for smoothing
+      angleHistory.leftElbow.push(rawAngle);
+      if (angleHistory.leftElbow.length > 20) {
+        angleHistory.leftElbow.shift();
+      }
+      
+      // Get smoothed angle
+      const smoothedAngle = smoothAngle(rawAngle, angleHistory.leftElbow);
+      
+      // Draw the angle on the canvas with ideal range indicator
+      drawAngleWithRange(leftElbow.x, leftElbow.y, smoothedAngle, [100, 180], "Left");
     }
   }
   // Add more exercises with specific joint angles to visualize
 }
 
-// Draw angle on the canvas
-function drawAngle(x, y, angle, color) {
+// Draw rep counting debug information
+function drawRepCountingDebugInfo() {
+  // Only draw debug info if visualizer is not active to avoid duplication
+  if (visualizer && visualizer.isActive) return;
+  
+  const padding = 10;
+  const lineHeight = 20;
+  let y = padding;
+  
+  // Set text style
+  canvasCtx.font = '16px Arial';
+  canvasCtx.fillStyle = '#ffffff';
+  canvasCtx.strokeStyle = '#000000';
+  canvasCtx.lineWidth = 3;
+  
+  // Draw background for better readability
+  canvasCtx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  canvasCtx.fillRect(padding, y, 250, 100);
+  canvasCtx.fillStyle = '#ffffff';
+  
+  // Draw current state
+  const stateText = `State: ${repState}`;
+  canvasCtx.strokeText(stateText, padding + 5, y + lineHeight);
+  canvasCtx.fillText(stateText, padding + 5, y + lineHeight);
+  
+  // Draw rep count
+  const repText = `Reps: ${repCount}`;
+  canvasCtx.strokeText(repText, padding + 5, y + lineHeight * 2);
+  canvasCtx.fillText(repText, padding + 5, y + lineHeight * 2);
+  
+  // Draw angle info if available
+  if (angleHistory.rightElbow.length > 0) {
+    const rightElbowAngle = angleHistory.rightElbow[angleHistory.rightElbow.length - 1];
+    const angleText = `Right Elbow: ${isNaN(rightElbowAngle) ? "N/A" : Math.round(rightElbowAngle)}°`;
+    canvasCtx.strokeText(angleText, padding + 5, y + lineHeight * 3);
+    canvasCtx.fillText(angleText, padding + 5, y + lineHeight * 3);
+  }
+  
+  if (angleHistory.leftElbow.length > 0) {
+    const leftElbowAngle = angleHistory.leftElbow[angleHistory.leftElbow.length - 1];
+    const angleText = `Left Elbow: ${isNaN(leftElbowAngle) ? "N/A" : Math.round(leftElbowAngle)}°`;
+    canvasCtx.strokeText(angleText, padding + 5, y + lineHeight * 4);
+    canvasCtx.fillText(angleText, padding + 5, y + lineHeight * 4);
+  }
+}
+
+// Enhanced angle drawing with ideal range indicator
+function drawAngleWithRange(x, y, angle, idealRange, label = "") {
   const canvasX = x * canvasElement.width;
   const canvasY = y * canvasElement.height;
+  const [minIdeal, maxIdeal] = idealRange;
   
-  canvasCtx.font = '16px Arial';
+  // Determine color based on whether angle is in ideal range
+  let color;
+  if (angle >= minIdeal && angle <= maxIdeal) {
+    color = '#30c39e'; // Green for good
+  } else if (angle >= minIdeal - 15 && angle <= maxIdeal + 15) {
+    color = '#ffc107'; // Yellow for warning
+  } else {
+    color = '#ff3a5e'; // Red for error
+  }
+  
+  // Draw angle text with label
+  canvasCtx.font = 'bold 16px Arial';
   canvasCtx.fillStyle = color;
-  canvasCtx.fillText(`${Math.round(angle)}°`, canvasX, canvasY);
+  canvasCtx.fillText(`${label} ${Math.round(angle)}°`, canvasX, canvasY - 25);
   
-  // Draw a small circle around the joint
+  // Draw ideal range indicator
+  canvasCtx.font = '12px Arial';
+  canvasCtx.fillStyle = '#ffffff';
+  canvasCtx.fillText(`Target: ${minIdeal}°-${maxIdeal}°`, canvasX, canvasY - 10);
+  
+  // Draw a circle around the joint
   canvasCtx.beginPath();
   canvasCtx.arc(canvasX, canvasY, 20, 0, 2 * Math.PI);
   canvasCtx.strokeStyle = color;
   canvasCtx.lineWidth = 2;
   canvasCtx.stroke();
+  
+  // Draw an arc to represent the angle
+  const startAngle = 0;
+  const endAngle = (angle / 180) * Math.PI;
+  canvasCtx.beginPath();
+  canvasCtx.arc(canvasX, canvasY, 30, startAngle, endAngle);
+  canvasCtx.strokeStyle = color;
+  canvasCtx.lineWidth = 3;
+  canvasCtx.stroke();
+}
+
+// Legacy function for backward compatibility
+function drawAngle(x, y, angle, color) {
+  drawAngleWithRange(x, y, angle, [0, 180], "");
 }
 
 // Select an exercise
@@ -345,6 +747,11 @@ function selectExercise(exerciseId) {
   
   // Display exercise details
   displayExerciseDetails(exercise);
+  
+  // Update documentation with selected exercise
+  if (exerciseMetrics[exercise.name]) {
+    documentationManager.setExercise(exerciseMetrics[exercise.name]);
+  }
 }
 
 // Display exercise details
@@ -387,6 +794,29 @@ function displayExerciseDetails(exercise) {
   exerciseDetailsContainer.innerHTML = detailsHTML;
 }
 
+// Add analytics controls to the UI
+function addAnalyticsControls() {
+  // Create a button to show/hide the progress report
+  const repCounterContainer = document.getElementById('rep-counter-container');
+  if (!repCounterContainer) return;
+  
+  // Check if the button already exists
+  if (document.getElementById('show-progress-report')) return;
+  
+  const reportButton = document.createElement('button');
+  reportButton.id = 'show-progress-report';
+  reportButton.className = 'btn btn-primary';
+  reportButton.innerHTML = '<i class="fas fa-chart-line"></i> Show Progress Report';
+  reportButton.style.marginTop = '20px';
+  reportButton.style.display = 'none'; // Hide initially, show after exercise completion
+  
+  reportButton.addEventListener('click', () => {
+    displayProgressReport();
+  });
+  
+  repCounterContainer.appendChild(reportButton);
+}
+
 // Toggle exercise tracking on/off
 function toggleExercise() {
   if (!selectedExercise) return;
@@ -413,6 +843,16 @@ function toggleExercise() {
     
     // Create metrics container
     createMetricsContainer();
+    
+    // Announce exercise start with audio coach
+    if (audioCoach) {
+      audioCoach.announceExerciseStart(selectedExercise.name);
+    }
+    
+    // Start analytics session
+    if (analytics) {
+      analytics.startSession(selectedExercise.name);
+    }
   } else {
     // Update UI
     startExerciseButton.innerHTML = '<i class="fas fa-play"></i> Start Exercise';
@@ -423,6 +863,25 @@ function toggleExercise() {
     // Generate final feedback if we have data
     if (exerciseData.length > 0) {
       generateExerciseFeedback(exerciseData);
+      
+      // Provide audio summary
+      if (audioCoach) {
+        const lastMetrics = exerciseData[exerciseData.length - 1];
+        audioCoach.provideSummary(selectedExercise.name, lastMetrics);
+      }
+      
+      // End analytics session
+      if (analytics) {
+        const sessionSummary = analytics.endSession();
+        console.log('Session summary:', sessionSummary);
+        
+        // Show progress report button
+        const reportButton = document.getElementById('show-progress-report');
+        if (reportButton) {
+          reportButton.style.display = 'inline-block';
+        }
+      }
+      
       exerciseData = [];
     }
   }
@@ -468,11 +927,253 @@ function createMetricsContainer() {
         </div>
       </div>
     </div>
+    
+    <!-- Advanced Insights Section (hidden initially) -->
+    <div id="advanced-insights" class="advanced-insights">
+      <div class="insights-header">
+        <h3><i class="fas fa-chart-bar"></i> Advanced Insights</h3>
+        <button id="toggle-insights" class="toggle-button">
+          <i class="fas fa-chevron-down"></i>
+        </button>
+      </div>
+      <div id="insights-content" class="insights-content" style="display: none;">
+        <div class="insights-tabs">
+          <button class="insights-tab active" data-tab="progress-insights">Progress</button>
+          <button class="insights-tab" data-tab="recommendations">Recommendations</button>
+        </div>
+        <div class="insights-panels">
+          <div id="progress-insights" class="insights-panel active">
+            <div class="insights-loading">
+              <i class="fas fa-spinner fa-pulse"></i> Analyzing your progress history...
+            </div>
+            <div class="insights-data" style="display: none;">
+              <div class="insights-section">
+                <h4><i class="fas fa-dumbbell"></i> Strength Progress</h4>
+                <p id="strength-progress">Analyzing your strength progression...</p>
+              </div>
+              <div class="insights-section">
+                <h4><i class="fas fa-check-double"></i> Form Improvement</h4>
+                <p id="form-improvement">Analyzing your form improvement...</p>
+              </div>
+              <div class="insights-section">
+                <h4><i class="fas fa-ruler"></i> Range of Motion</h4>
+                <p id="range-of-motion">Analyzing your range of motion...</p>
+              </div>
+              <div class="insights-section">
+                <h4><i class="fas fa-tachometer-alt"></i> Efficiency</h4>
+                <p id="efficiency">Analyzing your workout efficiency...</p>
+              </div>
+              <div class="insights-section">
+                <h4><i class="fas fa-flag-checkered"></i> Next Milestone</h4>
+                <p id="next-milestone">Determining your next milestone...</p>
+              </div>
+            </div>
+          </div>
+          <div id="recommendations" class="insights-panel">
+            <div class="insights-loading">
+              <i class="fas fa-spinner fa-pulse"></i> Generating personalized recommendations...
+            </div>
+            <div class="insights-data" style="display: none;">
+              <div class="insights-section">
+                <h4><i class="fas fa-plus-circle"></i> Complementary Exercises</h4>
+                <p id="complementary-exercises">Analyzing complementary exercises...</p>
+              </div>
+              <div class="insights-section">
+                <h4><i class="fas fa-level-up-alt"></i> Progression Plan</h4>
+                <p id="progression-plan">Creating your progression plan...</p>
+              </div>
+              <div class="insights-section">
+                <h4><i class="fas fa-bullseye"></i> Form Focus</h4>
+                <p id="form-focus">Analyzing your form focus areas...</p>
+              </div>
+              <div class="insights-section">
+                <h4><i class="fas fa-bed"></i> Recovery Tips</h4>
+                <p id="recovery-tips">Generating recovery recommendations...</p>
+              </div>
+              <div class="insights-section">
+                <h4><i class="fas fa-random"></i> Variation Suggestion</h4>
+                <p id="variation-suggestion">Finding exercise variations...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   `;
   
   // Show the rep counter container
   repCounterContainer.classList.add('active');
+  
+  // Set up event listeners for the advanced insights section
+  setupInsightsEventListeners();
+  
+  // Check for existing insights data and load it
+  loadExistingInsights();
 }
+
+// Set up event listeners for the advanced insights section
+function setupInsightsEventListeners() {
+  // Toggle insights visibility
+  const toggleButton = document.getElementById('toggle-insights');
+  const insightsContent = document.getElementById('insights-content');
+  
+  if (toggleButton && insightsContent) {
+    toggleButton.addEventListener('click', () => {
+      const isVisible = insightsContent.style.display !== 'none';
+      insightsContent.style.display = isVisible ? 'none' : 'block';
+      toggleButton.innerHTML = isVisible ? 
+        '<i class="fas fa-chevron-down"></i>' : 
+        '<i class="fas fa-chevron-up"></i>';
+    });
+  }
+  
+  // Tab switching
+  const tabButtons = document.querySelectorAll('.insights-tab');
+  tabButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      // Remove active class from all tabs and panels
+      document.querySelectorAll('.insights-tab').forEach(tab => tab.classList.remove('active'));
+      document.querySelectorAll('.insights-panel').forEach(panel => panel.classList.remove('active'));
+      
+      // Add active class to clicked tab
+      button.classList.add('active');
+      
+      // Show corresponding panel
+      const tabId = button.getAttribute('data-tab');
+      const panel = document.getElementById(tabId);
+      if (panel) {
+        panel.classList.add('active');
+      }
+    });
+  });
+}
+
+// Load existing insights data from localStorage
+function loadExistingInsights() {
+  if (!selectedExercise) return;
+  
+  // Check for progress insights
+  try {
+    const storedInsights = localStorage.getItem('exercise-insights');
+    if (storedInsights) {
+      const insightsData = JSON.parse(storedInsights);
+      
+      // Only use if it's for the current exercise and less than 24 hours old
+      if (insightsData.exerciseName === selectedExercise.name && 
+          Date.now() - insightsData.timestamp < 24 * 60 * 60 * 1000) {
+        
+        displayProgressInsights(insightsData.insights);
+      }
+    }
+  } catch (e) {
+    console.warn('Error loading stored progress insights:', e);
+  }
+  
+  // Check for workout recommendations
+  try {
+    const storedRecommendations = localStorage.getItem('workout-recommendations');
+    if (storedRecommendations) {
+      const recommendationsData = JSON.parse(storedRecommendations);
+      
+      // Only use if it's for the current exercise and less than 24 hours old
+      if (recommendationsData.exerciseName === selectedExercise.name && 
+          Date.now() - recommendationsData.timestamp < 24 * 60 * 60 * 1000) {
+        
+        displayWorkoutRecommendations(recommendationsData.recommendations);
+      }
+    }
+  } catch (e) {
+    console.warn('Error loading stored workout recommendations:', e);
+  }
+}
+
+// Display progress insights in the UI
+function displayProgressInsights(insightsText) {
+  // Hide loading indicator
+  const loadingIndicator = document.querySelector('#progress-insights .insights-loading');
+  const insightsData = document.querySelector('#progress-insights .insights-data');
+  
+  if (loadingIndicator) loadingIndicator.style.display = 'none';
+  if (insightsData) insightsData.style.display = 'block';
+  
+  // Parse insights text
+  try {
+    // Extract sections using regex
+    const strengthMatch = insightsText.match(/STRENGTH_PROGRESS:([^]*?)(?=\d\.|$)/);
+    const formMatch = insightsText.match(/FORM_IMPROVEMENT:([^]*?)(?=\d\.|$)/);
+    const romMatch = insightsText.match(/RANGE_OF_MOTION:([^]*?)(?=\d\.|$)/);
+    const efficiencyMatch = insightsText.match(/EFFICIENCY:([^]*?)(?=\d\.|$)/);
+    const milestoneMatch = insightsText.match(/NEXT_MILESTONE:([^]*?)(?=\d\.|$)/);
+    
+    // Update UI elements if matches found
+    if (strengthMatch && document.getElementById('strength-progress')) {
+      document.getElementById('strength-progress').textContent = strengthMatch[1].trim();
+    }
+    
+    if (formMatch && document.getElementById('form-improvement')) {
+      document.getElementById('form-improvement').textContent = formMatch[1].trim();
+    }
+    
+    if (romMatch && document.getElementById('range-of-motion')) {
+      document.getElementById('range-of-motion').textContent = romMatch[1].trim();
+    }
+    
+    if (efficiencyMatch && document.getElementById('efficiency')) {
+      document.getElementById('efficiency').textContent = efficiencyMatch[1].trim();
+    }
+    
+    if (milestoneMatch && document.getElementById('next-milestone')) {
+      document.getElementById('next-milestone').textContent = milestoneMatch[1].trim();
+    }
+  } catch (e) {
+    console.warn('Error parsing progress insights:', e);
+  }
+}
+
+// Display workout recommendations in the UI
+function displayWorkoutRecommendations(recommendationsText) {
+  // Hide loading indicator
+  const loadingIndicator = document.querySelector('#recommendations .insights-loading');
+  const insightsData = document.querySelector('#recommendations .insights-data');
+  
+  if (loadingIndicator) loadingIndicator.style.display = 'none';
+  if (insightsData) insightsData.style.display = 'block';
+  
+  // Parse recommendations text
+  try {
+    // Extract sections using regex
+    const complementaryMatch = recommendationsText.match(/COMPLEMENTARY_EXERCISES:([^]*?)(?=\d\.|$)/);
+    const progressionMatch = recommendationsText.match(/PROGRESSION_PLAN:([^]*?)(?=\d\.|$)/);
+    const formFocusMatch = recommendationsText.match(/FORM_FOCUS:([^]*?)(?=\d\.|$)/);
+    const recoveryMatch = recommendationsText.match(/RECOVERY_TIPS:([^]*?)(?=\d\.|$)/);
+    const variationMatch = recommendationsText.match(/VARIATION_SUGGESTION:([^]*?)(?=\d\.|$)/);
+    
+    // Update UI elements if matches found
+    if (complementaryMatch && document.getElementById('complementary-exercises')) {
+      document.getElementById('complementary-exercises').textContent = complementaryMatch[1].trim();
+    }
+    
+    if (progressionMatch && document.getElementById('progression-plan')) {
+      document.getElementById('progression-plan').textContent = progressionMatch[1].trim();
+    }
+    
+    if (formFocusMatch && document.getElementById('form-focus')) {
+      document.getElementById('form-focus').textContent = formFocusMatch[1].trim();
+    }
+    
+    if (recoveryMatch && document.getElementById('recovery-tips')) {
+      document.getElementById('recovery-tips').textContent = recoveryMatch[1].trim();
+    }
+    
+    if (variationMatch && document.getElementById('variation-suggestion')) {
+      document.getElementById('variation-suggestion').textContent = variationMatch[1].trim();
+    }
+  } catch (e) {
+    console.warn('Error parsing workout recommendations:', e);
+  }
+}
+
+// This function has been removed to fix the duplicate declaration error
 
 // Analyze the exercise based on pose data
 function analyzeExercise() {
@@ -485,6 +1186,7 @@ function analyzeExercise() {
     jointAngles: {},
     formQuality: "good", // Default value, will be updated based on analysis
     targetMuscles: selectedExercise.targetMuscles,
+    formIssues: [],
     // Add new metrics collections
     rangeOfMotion: {},
     movement: {
@@ -514,16 +1216,211 @@ function analyzeExercise() {
     metrics.worldPoseMetrics = extractWorldPoseMetrics(lastPoseData.poseWorld);
   }
   
-  // Example basic implementation for bicep curls
-  if (selectedExercise.name === "Dumbbell Bicep Curls") {
-    const bicepMetrics = analyzeBicepCurls();
-    if (bicepMetrics) {
-      metrics = { ...metrics, ...bicepMetrics };
+  // Get exercise-specific metrics from exercise-metrics.js
+  const exerciseMetricsData = exerciseMetrics[selectedExercise.name];
+  if (exerciseMetricsData && exerciseMetricsData.metricImplementations) {
+      // Process each metric implementation
+      Object.entries(exerciseMetricsData.metricImplementations).forEach(([metricKey, implementation]) => {
+        if (implementation.measure) {
+          const measureResult = implementation.measure(lastPoseData.pose, 
+            exerciseData.length > 0 ? exerciseData[exerciseData.length - 1] : null);
+          
+          if (measureResult) {
+            // Store the measured value
+            if (!metrics.jointAngles) metrics.jointAngles = {};
+            metrics.jointAngles[metricKey] = measureResult.value;
+            
+            // Store additional data from the measurement result
+            if (measureResult.leftAngle) metrics.jointAngles.leftElbow = measureResult.leftAngle;
+            if (measureResult.rightAngle) metrics.jointAngles.rightElbow = measureResult.rightAngle;
+            
+            // For Russian Twists, store shoulder vector for direction detection
+            if (metricKey === "rangeOfMotion" && measureResult.shoulderVector) {
+              metrics.shoulderVector = measureResult.shoulderVector;
+            }
+            
+            // Check if the value is within ideal range
+            if (measureResult.idealRange) {
+              const severity = determineFeedbackSeverity(measureResult.value, measureResult.idealRange);
+              
+              // Add form issues if not in ideal range
+              if (severity === "warning" || severity === "error") {
+                if (measureResult.feedbackText) {
+                  const feedbackText = severity === "warning" 
+                    ? measureResult.feedbackText.warning 
+                    : measureResult.feedbackText.error;
+                  
+                  if (feedbackText) {
+                    metrics.formIssues.push(feedbackText);
+                    
+                    // Update form quality if severe issue
+                    if (severity === "error") {
+                      metrics.formQuality = "needs_improvement";
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      });
+    
+    // Use rep counting strategy from exercise metrics
+    if (exerciseMetricsData.repCountingStrategy) {
+      const strategy = exerciseMetricsData.repCountingStrategy;
+      
+      // Store the current rep state before potentially changing it
+      previousRepState = repState;
+      
+      // Check for state timeout to prevent getting stuck
+      const currentTime = Date.now();
+      if (stateTimeout.state === repState) {
+        const timeInState = currentTime - stateTimeout.startTime;
+        if (timeInState > stateTimeout.maxDuration) {
+          // Instead of just resetting to waiting, force a transition based on current angles
+          if (repState === 'waiting') {
+            // Get current elbow angles if available
+            let rightElbowAngle = null;
+            let leftElbowAngle = null;
+            
+            if (lastPoseData && lastPoseData.pose) {
+              const pose = lastPoseData.pose;
+              // Calculate right elbow angle if landmarks are available
+              if (pose[12] && pose[14] && pose[16]) {
+                rightElbowAngle = calculateAngle(
+                  [pose[12].x, pose[12].y], // Right shoulder
+                  [pose[14].x, pose[14].y], // Right elbow
+                  [pose[16].x, pose[16].y]  // Right wrist
+                );
+              }
+              
+              // Calculate left elbow angle if landmarks are available
+              if (pose[11] && pose[13] && pose[15]) {
+                leftElbowAngle = calculateAngle(
+                  [pose[11].x, pose[11].y], // Left shoulder
+                  [pose[13].x, pose[13].y], // Left elbow
+                  [pose[15].x, pose[15].y]  // Left wrist
+                );
+              }
+            }
+            
+            // Log the angles for debugging
+            console.log(`Forcing transition from waiting state. Right angle: ${rightElbowAngle}, Left angle: ${leftElbowAngle}`);
+            
+            // Use the angles to determine which state to transition to
+            if (rightElbowAngle !== null || leftElbowAngle !== null) {
+              // Use the available angle (prefer right if both are available)
+              const angle = rightElbowAngle !== null ? rightElbowAngle : leftElbowAngle;
+              
+              // For bicep curls: if arm is extended (angle > 140), go to 'down' state
+              // If arm is bent (angle < 90), go to 'up' state
+              if (angle > 140) {
+                console.log(`Forcing transition to 'down' state with angle ${angle}°`);
+                repState = 'down';
+              } else if (angle < 90) {
+                console.log(`Forcing transition to 'up' state with angle ${angle}°`);
+                repState = 'up';
+              } else {
+                // If angle is in between, default to 'down' as it's more common starting position
+                console.log(`Angle in middle range (${angle}°), defaulting to 'down' state`);
+                repState = 'down';
+              }
+            } else {
+              // If no angles available, just try 'down' state
+              console.log("No angle data available, defaulting to 'down' state");
+              repState = 'down';
+            }
+          } else {
+            // For non-waiting states, reset to waiting as before
+            console.log(`State timeout: ${repState} for ${timeInState}ms, resetting to 'waiting'`);
+            repState = 'waiting';
+          }
+          
+          // Update timeout tracking for the new state
+          stateTimeout.state = repState;
+          stateTimeout.startTime = currentTime;
+        }
+      } else {
+        // Update state timeout tracking for new state
+        stateTimeout.state = repState;
+        stateTimeout.startTime = currentTime;
+      }
+      
+      // Apply state transitions based on metrics
+      if (strategy.transitions && strategy.transitions[repState]) {
+        // Check if transitions is an array (new format) or an object (old format)
+        const transitions = Array.isArray(strategy.transitions[repState]) 
+          ? strategy.transitions[repState] 
+          : [strategy.transitions[repState]];
+        
+        // Check each possible transition for the current state
+        let transitionOccurred = false;
+        for (const transition of transitions) {
+          if (transition.condition(metrics)) {
+            // Transition to new state
+            const newState = transition.to;
+            
+            // Log state transition for debugging
+            if (debugRepCounting) {
+              console.log(`State transition: ${repState} -> ${newState}`);
+              if (metrics.jointAngles && metrics.jointAngles.rightElbow) {
+                console.log(`Right elbow angle: ${metrics.jointAngles.rightElbow}°`);
+              }
+              if (metrics.jointAngles && metrics.jointAngles.leftElbow) {
+                console.log(`Left elbow angle: ${metrics.jointAngles.leftElbow}°`);
+              }
+            }
+            
+            // Update rep state
+            repState = newState;
+            
+            // Reset state timeout for new state
+            stateTimeout.state = newState;
+            stateTimeout.startTime = currentTime;
+            
+            transitionOccurred = true;
+            
+            // Break after the first successful transition
+            break; 
+          }
+        }
+        
+        // If no transition occurred and we're in waiting state for too long, try to force a transition
+        if (!transitionOccurred && repState === 'waiting' && 
+            currentTime - stateTimeout.startTime > 2000) {
+          
+          // Check if we have valid angle data to make a decision
+          if (metrics.jointAngles && metrics.jointAngles.rightElbow) {
+            const angle = metrics.jointAngles.rightElbow;
+            
+            // Force transition based on current angle
+            if (angle > 140) {
+              repState = 'down';
+              stateTimeout.state = 'down';
+              stateTimeout.startTime = currentTime;
+              console.log(`Forced transition to 'down' state with angle ${angle}°`);
+            } else if (angle < 90) {
+              repState = 'up';
+              stateTimeout.state = 'up';
+              stateTimeout.startTime = currentTime;
+              console.log(`Forced transition to 'up' state with angle ${angle}°`);
+            }
+          }
+        }
+      }
     }
-  } else if (selectedExercise.name === "Dumbbell Shoulder Press") {
-    const shoulderMetrics = analyzeShoulderPress();
-    if (shoulderMetrics) {
-      metrics = { ...metrics, ...shoulderMetrics };
+  } else {
+    // Fallback to basic implementations if exercise metrics not found
+    if (selectedExercise.name === "Dumbbell Bicep Curls") {
+      const bicepMetrics = analyzeBicepCurls();
+      if (bicepMetrics) {
+        metrics = { ...metrics, ...bicepMetrics };
+      }
+    } else if (selectedExercise.name === "Dumbbell Shoulder Press") {
+      const shoulderMetrics = analyzeShoulderPress();
+      if (shoulderMetrics) {
+        metrics = { ...metrics, ...shoulderMetrics };
+      }
     }
   }
   
@@ -546,11 +1443,49 @@ function analyzeExercise() {
     metrics.rangeOfMotion = calculateRangeOfMotion(lastPoseData, exerciseData);
   }
   
+  // Handle partial reps for exercises that support it
+  if (exerciseMetricsData.repCountingStrategy && exerciseMetricsData.repCountingStrategy.getRepQuality) {
+    // Check if we've transitioned states
+    if (repState !== previousRepState) {
+      // Get rep quality (1.0 for full rep, 0.5 for partial, 0 for non-counting transitions)
+      const repQuality = exerciseMetricsData.repCountingStrategy.getRepQuality(previousRepState, repState);
+      
+      if (repQuality > 0) {
+        // Add the rep quality to the count (allows for partial reps)
+        repCount += repQuality;
+        console.log(`Rep counted: ${repCount} (quality: ${repQuality})`);
+        
+        // Announce rep count with audio coach
+        if (audioCoach) {
+          if (repQuality === 1.0) {
+            audioCoach.countRep(Math.floor(repCount));
+          } else {
+            audioCoach.announcePartialRep(repQuality);
+          }
+        }
+        
+        // Record the rep in analytics with quality information
+        if (analytics) {
+          metrics.repQuality = repQuality;
+          analytics.recordRep(metrics);
+        }
+      }
+    }
+  }
+  
+  // Check for symmetry issues
+  if (metrics.symmetry && metrics.symmetry.value > 10) {
+    metrics.formIssues.push("Uneven movement between left and right sides. Try to keep both arms moving together.");
+    metrics.formQuality = "needs_improvement";
+  }
+  
   // Update exercise metrics in the UI
   updateExerciseMetrics();
   
   return metrics;
 }
+
+// Import the determineFeedbackSeverity function from exercise-metrics.js instead of redefining it
 
 // Extract additional metrics from 3D world pose landmarks
 function extractWorldPoseMetrics(worldPoseLandmarks) {
@@ -868,6 +1803,110 @@ function calculateRangeOfMotion(currentData, historicalData) {
   return rom;
 }
 
+// Display progress report
+function displayProgressReport() {
+  if (!analytics) return;
+  
+  // Generate the progress report
+  const report = analytics.generateProgressReport();
+  if (!report) {
+    alert('Not enough data to generate a progress report yet.');
+    return;
+  }
+  
+  // Check if a report container already exists
+  let reportContainer = document.getElementById('progress-report');
+  if (!reportContainer) {
+    // Create a new container
+    reportContainer = document.createElement('div');
+    reportContainer.id = 'progress-report';
+    reportContainer.className = 'progress-report';
+    
+    // Add it to the page after the rep counter container
+    const repCounterContainer = document.getElementById('rep-counter-container');
+    if (repCounterContainer) {
+      repCounterContainer.parentNode.insertBefore(reportContainer, repCounterContainer.nextSibling);
+    } else {
+      // Fallback - add to body
+      document.body.appendChild(reportContainer);
+    }
+  }
+  
+  // If there's not enough data
+  if (report.totalSessions === 0) {
+    reportContainer.innerHTML = `
+      <h3><i class="fas fa-chart-line"></i> Progress Report</h3>
+      <p>${report.message}</p>
+    `;
+    return;
+  }
+  
+  // Create the report content
+  reportContainer.innerHTML = `
+    <h3><i class="fas fa-chart-line"></i> Progress Report for ${report.exerciseName}</h3>
+    
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-label">Total Sessions</div>
+        <div class="metric-value">${report.totalSessions}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Total Reps</div>
+        <div class="metric-value">${report.totalReps}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Avg. Form Quality</div>
+        <div class="metric-value">${Math.round(report.averageFormQuality * 100)}%</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Avg. Reps/Session</div>
+        <div class="metric-value">${Math.round(report.avgRepsPerSession)}</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Form Trend</div>
+        <div class="metric-value" style="color: ${report.formImprovementTrend > 0 ? 'var(--secondary-color)' : 'var(--primary-color)'}">
+          ${report.formImprovementTrend > 0 ? '↑' : (report.formImprovementTrend < 0 ? '↓' : '→')}
+          ${Math.abs(Math.round(report.formImprovementTrend * 100))}%
+        </div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Consistency</div>
+        <div class="metric-value">${Math.round(report.consistencyScore * 100)}%</div>
+      </div>
+    </div>
+    
+    <div class="recommendations-section">
+      <h4>Areas for Improvement</h4>
+      <ul class="recommendations-list">
+        ${report.areasOfImprovement.map(area => 
+          `<li><i class="fas fa-exclamation-circle"></i> ${area}</li>`
+        ).join('')}
+      </ul>
+    </div>
+    
+    <div class="recommendations-section">
+      <h4>Recommendations</h4>
+      <ul class="recommendations-list">
+        ${report.recommendations.map(rec => 
+          `<li><i class="fas fa-lightbulb"></i> ${rec}</li>`
+        ).join('')}
+      </ul>
+    </div>
+    
+    ${report.bestSession ? `
+    <div class="recommendations-section">
+      <h4>Best Session</h4>
+      <p>Date: ${report.bestSession.date}</p>
+      <p>Form Quality: ${Math.round(report.bestSession.formQuality * 100)}%</p>
+      <p>Reps Completed: ${report.bestSession.repCount}</p>
+    </div>
+    ` : ''}
+  `;
+  
+  // Scroll to the report
+  reportContainer.scrollIntoView({ behavior: 'smooth' });
+}
+
 // Basic bicep curl detection
 function analyzeBicepCurls() {
   const pose = lastPoseData.pose;
@@ -923,6 +1962,13 @@ function analyzeBicepCurls() {
     formQuality = "needs_improvement";
   }
   
+  // Previous rep state to detect changes
+  const previousRepState = repState;
+  
+  // Track rep start time for duration calculation
+  let repStartTime = Date.now();
+  let repCompleted = false;
+  
   // Simple state machine for rep counting
   // Using the right arm as reference - could be improved to detect both arms
   if (rightElbowAngle > 150 && repState === 'up') {
@@ -932,13 +1978,21 @@ function analyzeBicepCurls() {
     // Arm bent, completed the "up" part of the rep, count it
     repState = 'up';
     repCount++;
+    repCompleted = true;
     console.log(`Rep counted: ${repCount}`);
+    
+    // Announce rep count with audio coach
+    if (audioCoach) {
+      audioCoach.countRep(repCount);
+    }
   } else if (repState === 'waiting' && rightElbowAngle > 150) {
     // Initial state, start with arm extended
     repState = 'down';
+    repStartTime = Date.now();
   }
   
-  return {
+  // Create metrics object
+  const metrics = {
     jointAngles: {
       rightElbow: rightElbowAngle,
       leftElbow: leftElbowAngle
@@ -948,6 +2002,18 @@ function analyzeBicepCurls() {
     formIssues: formIssues,
     repState: repState
   };
+  
+  // Record rep in analytics if completed
+  if (repCompleted && analytics) {
+    // Add duration and start time to the metrics
+    metrics.duration = (Date.now() - repStartTime) / 1000;
+    metrics.startTime = repStartTime;
+    
+    // Record the rep
+    analytics.recordRep(metrics);
+  }
+  
+  return metrics;
 }
 
 // Basic shoulder press detection
@@ -1006,6 +2072,13 @@ function analyzeShoulderPress() {
     formQuality = "needs_improvement";
   }
   
+  // Previous rep state to detect changes
+  const previousRepState = repState;
+  
+  // Track rep start time for duration calculation
+  let repStartTime = Date.now();
+  let repCompleted = false;
+  
   // Simple state machine for rep counting
   if (rightElbowAngle > 150 && repState === 'down') {
     // Arm extended upward, completed the "up" part of the rep
@@ -1014,13 +2087,21 @@ function analyzeShoulderPress() {
     // Arm bent, completed the "down" part of the rep, count it
     repState = 'down';
     repCount++;
+    repCompleted = true;
     console.log(`Rep counted: ${repCount}`);
+    
+    // Announce rep count with audio coach
+    if (audioCoach) {
+      audioCoach.countRep(repCount);
+    }
   } else if (repState === 'waiting' && rightElbowAngle < 90) {
     // Initial state, start with arm down
     repState = 'down';
+    repStartTime = Date.now();
   }
   
-  return {
+  // Create metrics object
+  const metrics = {
     jointAngles: {
       rightElbow: rightElbowAngle,
       leftElbow: leftElbowAngle
@@ -1034,19 +2115,21 @@ function analyzeShoulderPress() {
     formIssues: formIssues,
     repState: repState
   };
-}
-
-// Calculate angle between three points
-function calculateAngle(a, b, c) {
-  const radians = Math.atan2(c[1] - b[1], c[0] - b[0]) - Math.atan2(a[1] - b[1], a[0] - b[0]);
-  let angle = Math.abs(radians * 180.0 / Math.PI);
   
-  if (angle > 180.0) {
-    angle = 360 - angle;
+  // Record rep in analytics if completed
+  if (repCompleted && analytics) {
+    // Add duration and start time to the metrics
+    metrics.duration = (Date.now() - repStartTime) / 1000;
+    metrics.startTime = repStartTime;
+    
+    // Record the rep
+    analytics.recordRep(metrics);
   }
   
-  return angle;
+  return metrics;
 }
+
+// Using imported calculateAngle function from exercise-metrics.js
 
 // Update the exercise metrics in the UI
 function updateExerciseMetrics() {
@@ -1355,4 +2438,4 @@ function getFrequentValue(batchedData, metricPath) {
 }
 
 // Initialize the application when the DOM is loaded
-document.addEventListener('DOMContentLoaded', initApp); 
+document.addEventListener('DOMContentLoaded', initApp);

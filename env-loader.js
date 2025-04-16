@@ -32,16 +32,14 @@ function loadEnv() {
       })
       .catch(error => {
         console.warn('Error loading .env file:', error);
-        console.warn('Using fallback environment values');
+        console.warn('No environment variables available');
         
-        // Fallback: return hardcoded environment variables
-        // In a real app, you might try alternative methods like local storage
-        resolve({
-          'gemini-apikey': 'AIzaSyBQ-WyMzirG-wMR0tTmI0VV68BTdpIN7j0'
-        });
+        // Return an empty object instead of using hardcoded values
+        // The API class will handle prompting for the key
+        resolve({});
       });
   });
 }
 
 // Export the loadEnv function
-export { loadEnv }; 
+export { loadEnv };
