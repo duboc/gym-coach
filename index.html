@@ -23,15 +23,15 @@
       </div>
       <p class="tagline">Train with real-time pose detection</p>
       <div class="header-controls">
-        <button id="toggle-documentation" class="btn btn-secondary">
-          <i class="fas fa-book"></i> Documentation
+        <button id="toggle-documentation" class="btn btn-secondary touch-target">
+          <i class="fas fa-book"></i> <span class="btn-text">Documentation</span>
         </button>
       </div>
     </header>
     
     <div class="main-content">
       <!-- Exercise Library - Now on the left -->
-      <div class="side-panel left-panel">
+      <div class="side-panel left-panel" id="exercises-panel">
         <div class="panel exercises-panel">
           <div class="panel-header">
             <h2><i class="fas fa-list"></i> Exercise Library</h2>
@@ -43,12 +43,12 @@
       </div>
       
       <!-- Camera Section - Now in the middle -->
-      <div class="camera-section">
+      <div class="camera-section" id="camera-panel">
         <!-- Only the canvas is visible, video is hidden but used for processing -->
         <video class="input-video" autoplay playsinline></video>
         <canvas class="output-canvas" width="640" height="480"></canvas>
         <div class="camera-controls">
-          <button id="start-camera" class="btn"><i class="fas fa-video"></i> <span>Start Camera</span></button>
+          <button id="start-camera" class="btn touch-target"><i class="fas fa-video"></i> <span>Start Camera</span></button>
         </div>
         <!-- Rep Counter Section under camera -->
         <div id="rep-counter-container" class="rep-counter-container">
@@ -57,7 +57,7 @@
       </div>
       
       <!-- Selected Exercise - Now on the right -->
-      <div class="side-panel right-panel">
+      <div class="side-panel right-panel" id="details-panel">
         <div class="panel details-panel">
           <div class="panel-header">
             <h2><i class="fas fa-clipboard-list"></i> Selected Exercise: <span id="current-exercise">None</span></h2>
@@ -65,11 +65,57 @@
           <div class="panel-body">
             <div id="exercise-details" class="exercise-details"></div>
             <div class="action-buttons">
-              <button id="start-exercise" class="btn btn-primary" disabled><i class="fas fa-play"></i> Start Exercise</button>
+              <button id="start-exercise" class="btn btn-primary touch-target" disabled><i class="fas fa-play"></i> Start Exercise</button>
             </div>
           </div>
         </div>
       </div>
+    </div>
+    
+    <!-- Mobile Rep Counter Overlay -->
+    <div class="mobile-rep-counter" id="mobile-rep-counter">
+      <div class="rep-count">0</div>
+      <div class="rep-label">REPS</div>
+    </div>
+    
+    <!-- Floating Action Button for Mobile -->
+    <button id="mobile-action-btn" class="floating-action-btn">
+      <i class="fas fa-play"></i>
+    </button>
+    
+    <!-- Mobile Stepper for Step-Based Flow -->
+    <div class="mobile-stepper" id="mobile-stepper">
+      <div class="step active" data-step="1">
+        <div class="step-number">1</div>
+        <div class="step-label">Select</div>
+      </div>
+      <div class="step" data-step="2">
+        <div class="step-number">2</div>
+        <div class="step-label">Options</div>
+      </div>
+      <div class="step" data-step="3">
+        <div class="step-number">3</div>
+        <div class="step-label">Workout</div>
+      </div>
+    </div>
+    
+    <!-- Step Content Containers -->
+    <div class="step-content active" id="step-1-content">
+      <!-- Exercise selection UI - will be populated with exercise list -->
+    </div>
+    
+    <div class="step-content" id="step-2-content">
+      <!-- Exercise options UI - will be populated with exercise details -->
+    </div>
+    
+    <div class="step-content" id="step-3-content">
+      <!-- Camera and workout UI - will be populated with camera view -->
+    </div>
+    
+    <!-- Step Navigation Controls -->
+    <div class="step-navigation">
+      <button class="back-btn" id="step-back-btn">Back</button>
+      <button class="next-btn" id="step-next-btn">Next</button>
     </div>
     
     <footer>

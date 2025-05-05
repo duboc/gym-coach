@@ -127,8 +127,32 @@ class AudioCoach {
   
   // Load available voices
   loadVoices() {
-    this.voices = this.synth.getVoices();
-    console.log(`Loaded ${this.voices.length} voices for speech synthesis`);
+    // Get all available voices
+    const allVoices = this.synth.getVoices();
+    console.log(`Total available voices: ${allVoices.length}`);
+    
+    // Filter voices by language (English, Spanish, Portuguese)
+    this.voices = allVoices.filter(voice => {
+      const lang = voice.lang.toLowerCase();
+      return lang.startsWith('en') || lang.startsWith('es') || lang.startsWith('pt');
+    });
+    
+    console.log(`Loaded ${this.voices.length} voices for speech synthesis (English, Spanish, Portuguese only)`);
+    
+    // Log the selected voices for debugging
+    this.voices.forEach(voice => {
+      console.log(`Available voice: ${voice.name} (${voice.lang})`);
+    });
+    
+    // Set default voice to English if available
+    if (this.voices.length > 0) {
+      // Find an English voice to use as default
+      const englishVoice = this.voices.findIndex(voice => voice.lang.toLowerCase().startsWith('en'));
+      if (englishVoice !== -1) {
+        this.options.voiceIndex = englishVoice;
+        console.log(`Set default voice to English: ${this.voices[englishVoice].name} (${this.voices[englishVoice].lang})`);
+      }
+    }
   }
   
   // Enable or disable audio feedback

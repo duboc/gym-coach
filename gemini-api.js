@@ -50,21 +50,13 @@ class GeminiAPI {
         return true;
       }
       
-<<<<<<< HEAD
       // If we couldn't get a key from server, localStorage, or .env, prompt the user
       console.warn('No API key found from server, localStorage, or .env file, prompting user for input');
-=======
-      // If we couldn't get a key from .env, use the hardcoded fallback
-      // In a production environment, you should handle this more securely
-      console.warn('Could not load API key from .env file, using fallback method');
-      this.apiKey = ''; // Fallback to the key in the .env file
->>>>>>> 07e221d74f5e1bbe8acf415c37a8d5e44cae6003
       
       // Create and show the API key input modal
       return await this.promptForApiKey();
     } catch (error) {
       console.error('Failed to initialize Gemini API:', error);
-<<<<<<< HEAD
       return await this.promptForApiKey();
     }
   }
@@ -125,14 +117,6 @@ class GeminiAPI {
       } else {
         // If modal exists, just show it
         modal.style.display = 'flex';
-=======
-      // Try fallback method as a last resort
-      this.apiKey = '';
-      if (this.apiKey) {
-        this.initialized = true;
-        console.log('Gemini API initialized with emergency fallback key after error');
-        return true;
->>>>>>> 07e221d74f5e1bbe8acf415c37a8d5e44cae6003
       }
     });
   }
@@ -837,8 +821,4 @@ Keep each section to 1-2 sentences. Be specific, actionable, and personalized. T
 }
 
 // Export the GeminiAPI class
-<<<<<<< HEAD
 export const geminiAPI = new GeminiAPI();
-=======
-export const geminiAPI = new GeminiAPI(); 
->>>>>>> 07e221d74f5e1bbe8acf415c37a8d5e44cae6003

@@ -1,7 +1,7 @@
 // DOM Elements
-const videoElement = document.querySelector('.input-video');
-const canvasElement = document.querySelector('.output-canvas');
-const canvasCtx = canvasElement.getContext('2d');
+let videoElement = document.querySelector('.input-video');
+let canvasElement = document.querySelector('.output-canvas');
+let canvasCtx = canvasElement.getContext('2d');
 const startCameraButton = document.getElementById('start-camera');
 const exerciseListContainer = document.getElementById('exercise-list');
 const currentExerciseSpan = document.getElementById('current-exercise');
@@ -204,12 +204,44 @@ function addAudioControls() {
     // Clear existing options
     voiceSelect.innerHTML = '';
     
-    // Add voices to select
+    // Group voices by language
+    const voicesByLang = {
+      en: [],
+      es: [],
+      pt: []
+    };
+    
+    // Categorize voices by language
     audioCoach.voices.forEach((voice, index) => {
-      const option = document.createElement('option');
-      option.value = index;
-      option.textContent = `${voice.name} (${voice.lang})`;
-      voiceSelect.appendChild(option);
+      const lang = voice.lang.toLowerCase().substring(0, 2);
+      if (voicesByLang[lang]) {
+        voicesByLang[lang].push({ voice, index });
+      }
+    });
+    
+    // Create option groups for each language
+    const languages = {
+      en: 'English',
+      es: 'Spanish',
+      pt: 'Portuguese'
+    };
+    
+    // Add voices to select, grouped by language
+    Object.entries(languages).forEach(([langCode, langName]) => {
+      if (voicesByLang[langCode].length > 0) {
+        const group = document.createElement('optgroup');
+        group.label = langName;
+        
+        voicesByLang[langCode].forEach(({ voice, index }) => {
+          const option = document.createElement('option');
+          option.value = index;
+          option.textContent = voice.name;
+          option.selected = index === audioCoach.options.voiceIndex;
+          group.appendChild(option);
+        });
+        
+        voiceSelect.appendChild(group);
+      }
     });
   }
   
@@ -2437,5 +2469,622 @@ function getFrequentValue(batchedData, metricPath) {
   return mostFrequent;
 }
 
+// Mobile step-based flow functionality
+function setupMobileStepFlow() {
+  // Step flow state
+  const mobileFlowState = {
+    currentStep: 1,
+    selectedExercise: null,
+    exerciseOptions: {
+      repGoal: 10,
+      // Other options
+    },
+    isExerciseActive: false
+  };
+  
+  // DOM elements
+  const mobileStepperEl = document.getElementById('mobile-stepper');
+  const stepContentEls = document.querySelectorAll('.step-content');
+  const stepNavigationEl = document.querySelector('.step-navigation');
+  const backBtn = document.getElementById('step-back-btn');
+  const nextBtn = document.getElementById('step-next-btn');
+  const floatingActionBtn = document.getElementById('mobile-action-btn');
+  const mobileRepCounter = document.getElementById('mobile-rep-counter');
+  
+  // Only initialize on mobile devices
+  if (window.innerWidth <= 768) {
+    // Show mobile stepper and step navigation
+    if (mobileStepperEl) mobileStepperEl.style.display = 'flex';
+    if (stepNavigationEl) stepNavigationEl.style.display = 'flex';
+    
+    // Hide desktop panels
+    const desktopPanels = document.querySelectorAll('.side-panel, .camera-section');
+    desktopPanels.forEach(panel => {
+      panel.style.display = 'none';
+    });
+    
+    // Populate step content containers
+    populateStepContents();
+    
+    // Setup event listeners
+    setupStepEventListeners();
+  }
+  
+  // Populate step content containers with appropriate content
+  function populateStepContents() {
+    // Step 1: Exercise selection
+    const step1Content = document.getElementById('step-1-content');
+    if (step1Content) {
+      // Clone the exercise list from the desktop view
+      const exerciseList = document.getElementById('exercise-list');
+      if (exerciseList) {
+        const clonedList = exerciseList.cloneNode(true);
+        step1Content.innerHTML = '<h2>Select an Exercise</h2>';
+        step1Content.appendChild(clonedList);
+      }
+    }
+    
+    // Step 2: Exercise options
+    const step2Content = document.getElementById('step-2-content');
+    if (step2Content) {
+      step2Content.innerHTML = `
+        <h2>Configure Exercise</h2>
+        <div class="exercise-options">
+          <div class="option-group">
+            <label for="rep-goal">Rep Goal:</label>
+            <input type="number" id="mobile-rep-goal" min="1" max="50" value="10" class="select-control">
+          </div>
+          <div id="mobile-exercise-details" class="exercise-details">
+            <!-- Will be populated when exercise is selected -->
+          </div>
+        </div>
+      `;
+    }
+    
+    // Step 3: Workout/Camera
+    const step3Content = document.getElementById('step-3-content');
+    if (step3Content) {
+      // Clone the camera section from the desktop view
+      const cameraSection = document.querySelector('.camera-section');
+      if (cameraSection) {
+        const clonedCamera = cameraSection.cloneNode(true);
+        clonedCamera.style.display = 'block';
+        step3Content.innerHTML = '';
+        step3Content.appendChild(clonedCamera);
+      }
+    }
+  }
+  
+  // Setup event listeners for step navigation
+  function setupStepEventListeners() {
+    // Exercise selection in step 1
+    const exerciseCards = document.querySelectorAll('#step-1-content .exercise-card');
+    exerciseCards.forEach(card => {
+      card.addEventListener('click', () => {
+        const exerciseId = parseInt(card.dataset.id);
+        
+        // Select the exercise in the main app
+        selectExercise(exerciseId);
+        
+        // Update mobile flow state
+        mobileFlowState.selectedExercise = exerciseId;
+        
+        // Update UI to show selection
+        exerciseCards.forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        
+        // Update next button state
+        nextBtn.disabled = false;
+        
+        // Update exercise details in step 2
+        updateMobileExerciseDetails();
+      });
+    });
+    
+    // Rep goal input in step 2
+    const repGoalInput = document.getElementById('mobile-rep-goal');
+    if (repGoalInput) {
+      repGoalInput.addEventListener('change', () => {
+        mobileFlowState.exerciseOptions.repGoal = parseInt(repGoalInput.value);
+      });
+    }
+    
+    // Back button
+    if (backBtn) {
+      backBtn.addEventListener('click', () => {
+        if (mobileFlowState.currentStep > 1) {
+          goToStep(mobileFlowState.currentStep - 1);
+        }
+      });
+    }
+    
+    // Next button
+    if (nextBtn) {
+      nextBtn.addEventListener('click', () => {
+        if (mobileFlowState.currentStep < 3) {
+          goToStep(mobileFlowState.currentStep + 1);
+        } else if (mobileFlowState.currentStep === 3) {
+          // Start workout
+          startWorkout();
+        }
+      });
+    }
+    
+    // Floating action button
+    if (floatingActionBtn) {
+      floatingActionBtn.addEventListener('click', () => {
+        if (mobileFlowState.currentStep === 3) {
+          // Toggle exercise state
+          if (isExerciseActive) {
+            toggleExercise();
+            floatingActionBtn.innerHTML = '<i class="fas fa-play"></i>';
+          } else {
+            startWorkout();
+          }
+        } else {
+          // Go to next step
+          if (mobileFlowState.currentStep === 1 && mobileFlowState.selectedExercise === null) {
+            showMessage("Please select an exercise first");
+          } else {
+            goToStep(mobileFlowState.currentStep + 1);
+          }
+        }
+      });
+    }
+    
+    // Setup mobile rep counter
+    if (mobileRepCounter) {
+      const repCountElement = mobileRepCounter.querySelector('.rep-count');
+      
+      // Create a MutationObserver to watch for changes to the rep counter
+      const repCounterObserver = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          if (mutation.type === 'childList' && mutation.target.className === 'rep-counter') {
+            repCountElement.textContent = mutation.target.textContent;
+          }
+        });
+      });
+      
+      // Start observing the rep counter
+      const repCounter = document.querySelector('.rep-counter');
+      if (repCounter) {
+        repCounterObserver.observe(repCounter, { childList: true, subtree: true });
+      }
+    }
+    
+    // Show/hide mobile rep counter based on exercise state
+    document.addEventListener('exercise-state-changed', (e) => {
+      if (mobileRepCounter) {
+        if (e.detail.active) {
+          mobileRepCounter.classList.add('active');
+          floatingActionBtn.innerHTML = '<i class="fas fa-stop"></i>';
+        } else {
+          mobileRepCounter.classList.remove('active');
+          floatingActionBtn.innerHTML = '<i class="fas fa-play"></i>';
+        }
+      }
+    });
+    
+    // Handle orientation changes
+    window.addEventListener('orientationchange', () => {
+      // Adjust UI for new orientation
+      setTimeout(() => {
+        if (isExerciseActive && mobileFlowState.currentStep === 3) {
+          // Ensure camera is properly sized
+          const canvas = document.querySelector('#step-3-content .output-canvas');
+          if (canvas) {
+            canvas.style.width = '100%';
+          }
+        }
+      }, 300);
+    });
+  }
+  
+  // Navigate to a specific step
+  function goToStep(stepNumber) {
+    // Validate step transition
+    if (stepNumber === 2 && mobileFlowState.selectedExercise === null) {
+      showMessage("Please select an exercise first");
+      return false;
+    }
+    
+    // Update state
+    mobileFlowState.currentStep = stepNumber;
+    
+    // Update UI
+    updateStepperUI();
+    showActiveStepContent();
+    updateNavigationButtons();
+    
+    return true;
+  }
+  
+  // Update the stepper UI based on current step
+  function updateStepperUI() {
+    document.querySelectorAll('.step').forEach(step => {
+      const stepNum = parseInt(step.dataset.step);
+      step.classList.remove('active', 'completed');
+      
+      if (stepNum === mobileFlowState.currentStep) {
+        step.classList.add('active');
+      } else if (stepNum < mobileFlowState.currentStep) {
+        step.classList.add('completed');
+      }
+    });
+  }
+  
+  // Show the active step content
+  function showActiveStepContent() {
+    // Hide all step content
+    stepContentEls.forEach(content => {
+      content.classList.remove('active');
+    });
+    
+    // Show active step content
+    const activeContent = document.getElementById(`step-${mobileFlowState.currentStep}-content`);
+    if (activeContent) {
+      activeContent.classList.add('active');
+    }
+  }
+  
+  // Update navigation buttons based on current step
+  function updateNavigationButtons() {
+    // Update back button
+    backBtn.style.display = mobileFlowState.currentStep > 1 ? 'block' : 'none';
+    
+    // Update next button
+    if (mobileFlowState.currentStep === 3) {
+      nextBtn.textContent = 'Start Workout';
+    } else if (mobileFlowState.currentStep === 2) {
+      nextBtn.textContent = 'Continue';
+    } else {
+      nextBtn.textContent = 'Next';
+      nextBtn.disabled = mobileFlowState.selectedExercise === null;
+    }
+  }
+  
+  // Update exercise details in step 2
+  function updateMobileExerciseDetails() {
+    const detailsContainer = document.getElementById('mobile-exercise-details');
+    if (!detailsContainer) return;
+    
+    // Get the exercise details from the main app
+    const exerciseDetails = document.getElementById('exercise-details');
+    if (exerciseDetails) {
+      detailsContainer.innerHTML = exerciseDetails.innerHTML;
+    }
+  }
+  
+  // Start the workout
+  function startWorkout() {
+    // Apply rep goal from options
+    if (selectedExercise && mobileFlowState.exerciseOptions.repGoal) {
+      selectedExercise.rep_goal = mobileFlowState.exerciseOptions.repGoal;
+    }
+    
+    // First, stop any existing camera
+    if (camera) {
+      camera.stop();
+      camera = null;
+    }
+    
+    // Get the mobile step 3 video and canvas elements
+    const mobileVideo = document.querySelector('#step-3-content .input-video');
+    const mobileCanvas = document.querySelector('#step-3-content .output-canvas');
+    const mobileCanvasCtx = mobileCanvas ? mobileCanvas.getContext('2d') : null;
+    
+    // Make sure canvas is visible
+    if (mobileCanvas) {
+      mobileCanvas.style.display = 'block';
+    }
+    
+    // Create full-screen workout container
+    const fullscreenContainer = document.createElement('div');
+    fullscreenContainer.className = 'fullscreen-workout';
+    fullscreenContainer.id = 'fullscreen-workout';
+    
+    // Clone video and canvas elements for fullscreen mode
+    const fullscreenVideo = mobileVideo.cloneNode(true);
+    const fullscreenCanvas = mobileCanvas.cloneNode(false);
+    const fullscreenCanvasCtx = fullscreenCanvas.getContext('2d');
+    
+    // Add elements to fullscreen container
+    fullscreenContainer.appendChild(fullscreenVideo);
+    fullscreenContainer.appendChild(fullscreenCanvas);
+    
+    // Create floating feedback panel
+    const floatingFeedback = createFloatingFeedbackPanel();
+    fullscreenContainer.appendChild(floatingFeedback);
+    
+    // Create floating controls
+    const floatingControls = document.createElement('div');
+    floatingControls.className = 'floating-controls';
+    floatingControls.innerHTML = `
+      <button class="exit-fullscreen" title="Exit Fullscreen"><i class="fas fa-times"></i></button>
+      <button class="toggle-guides" title="Toggle Guides"><i class="fas fa-eye"></i></button>
+    `;
+    fullscreenContainer.appendChild(floatingControls);
+    
+    // Add to document
+    document.body.appendChild(fullscreenContainer);
+    
+    // Update global references to use the fullscreen elements
+    videoElement = fullscreenVideo;
+    canvasElement = fullscreenCanvas;
+    canvasCtx = fullscreenCanvasCtx;
+    
+    // Start camera with the fullscreen elements
+    try {
+      camera = new Camera(videoElement, {
+        onFrame: async () => {
+          await holistic.send({image: videoElement});
+        },
+        width: 640,
+        height: 480
+      });
+      
+      camera.start().then(() => {
+        console.log("Fullscreen camera started successfully");
+        
+        // Setup event listeners for fullscreen controls
+        setupFullscreenControls();
+        
+      }).catch(error => {
+        console.error("Error starting fullscreen camera:", error);
+        showCameraError("Could not access your camera. Please check permissions and try again.");
+        camera = null;
+        exitFullscreenWorkout();
+      });
+    } catch (error) {
+      console.error("Error initializing fullscreen camera:", error);
+      showCameraError("Failed to initialize camera. Please check your device and browser settings.");
+      exitFullscreenWorkout();
+    }
+    
+    // Start the exercise if not already active
+    if (!isExerciseActive) {
+      toggleExercise();
+    }
+    
+    // Update UI for workout mode
+    document.body.classList.add('workout-mode');
+    
+    // Make sure mobile rep counter is visible in fullscreen mode
+    const mobileRepCounter = document.getElementById('mobile-rep-counter');
+    if (mobileRepCounter) {
+      mobileRepCounter.classList.add('active');
+      fullscreenContainer.appendChild(mobileRepCounter.cloneNode(true));
+    }
+  }
+  
+  // Create floating feedback panel
+  function createFloatingFeedbackPanel() {
+    const floatingFeedback = document.createElement('div');
+    floatingFeedback.className = 'floating-feedback';
+    floatingFeedback.innerHTML = `
+      <div class="floating-feedback-header">
+        <h3><i class="fas fa-brain"></i> AI Coach Feedback</h3>
+        <i class="fas fa-chevron-down"></i>
+      </div>
+      <div class="floating-feedback-content">
+        <div class="floating-feedback-sections">
+          <div class="feedback-section">
+            <h4><i class="fas fa-check-circle"></i> Form Assessment</h4>
+            <p id="fullscreen-form-assessment">Start exercising to receive feedback on your form.</p>
+          </div>
+          <div class="feedback-section">
+            <h4><i class="fas fa-lightbulb"></i> Improvement Tip</h4>
+            <p id="fullscreen-improvement-tip">Complete a few reps to get personalized tips.</p>
+          </div>
+          <div class="feedback-section">
+            <h4><i class="fas fa-chart-line"></i> Progress</h4>
+            <p id="fullscreen-progress-feedback">Your progress will be tracked as you exercise.</p>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    // Add toggle functionality
+    const header = floatingFeedback.querySelector('.floating-feedback-header');
+    header.addEventListener('click', () => {
+      floatingFeedback.classList.toggle('expanded');
+      const icon = header.querySelector('i.fas:last-child');
+      icon.className = floatingFeedback.classList.contains('expanded') ? 
+        'fas fa-chevron-up' : 'fas fa-chevron-down';
+    });
+    
+    return floatingFeedback;
+  }
+  
+  // Setup event listeners for fullscreen controls
+  function setupFullscreenControls() {
+    const fullscreenContainer = document.getElementById('fullscreen-workout');
+    if (!fullscreenContainer) return;
+    
+    // Exit fullscreen button
+    const exitButton = fullscreenContainer.querySelector('.exit-fullscreen');
+    if (exitButton) {
+      exitButton.addEventListener('click', exitFullscreenWorkout);
+    }
+    
+    // Toggle guides button
+    const guidesButton = fullscreenContainer.querySelector('.toggle-guides');
+    if (guidesButton) {
+      guidesButton.addEventListener('click', () => {
+        if (visualizer) {
+          visualizer.showGuides = !visualizer.showGuides;
+          guidesButton.innerHTML = visualizer.showGuides ? 
+            '<i class="fas fa-eye"></i>' : '<i class="fas fa-eye-slash"></i>';
+        }
+      });
+    }
+    
+    // Sync feedback from main UI to fullscreen UI
+    const syncFeedback = () => {
+      const mainFormAssessment = document.getElementById('form-assessment');
+      const fullscreenFormAssessment = document.getElementById('fullscreen-form-assessment');
+      if (mainFormAssessment && fullscreenFormAssessment) {
+        fullscreenFormAssessment.textContent = mainFormAssessment.textContent;
+      }
+      
+      const mainImprovementTip = document.getElementById('improvement-tip');
+      const fullscreenImprovementTip = document.getElementById('fullscreen-improvement-tip');
+      if (mainImprovementTip && fullscreenImprovementTip) {
+        fullscreenImprovementTip.textContent = mainImprovementTip.textContent;
+      }
+      
+      const mainProgressFeedback = document.getElementById('progress-feedback');
+      const fullscreenProgressFeedback = document.getElementById('fullscreen-progress-feedback');
+      if (mainProgressFeedback && fullscreenProgressFeedback) {
+        fullscreenProgressFeedback.textContent = mainProgressFeedback.textContent;
+      }
+    };
+    
+    // Initial sync
+    syncFeedback();
+    
+    // Set up MutationObserver to sync feedback
+    const feedbackContainer = document.getElementById('feedback-container');
+    if (feedbackContainer) {
+      const observer = new MutationObserver(syncFeedback);
+      observer.observe(feedbackContainer, { 
+        childList: true, 
+        subtree: true, 
+        characterData: true 
+      });
+    }
+    
+    // Sync rep counter
+    const mainRepCounter = document.querySelector('.rep-counter');
+    const fullscreenRepCounter = fullscreenContainer.querySelector('.rep-count');
+    
+    if (mainRepCounter && fullscreenRepCounter) {
+      const repObserver = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          if (mutation.type === 'childList') {
+            fullscreenRepCounter.textContent = mainRepCounter.textContent;
+          }
+        });
+      });
+      
+      repObserver.observe(mainRepCounter, { childList: true });
+    }
+  }
+  
+  // Exit fullscreen workout mode
+  function exitFullscreenWorkout() {
+    // Stop camera
+    if (camera) {
+      camera.stop();
+      camera = null;
+    }
+    
+    // Remove fullscreen container
+    const fullscreenContainer = document.getElementById('fullscreen-workout');
+    if (fullscreenContainer) {
+      document.body.removeChild(fullscreenContainer);
+    }
+    
+    // Reset to mobile step UI
+    const mobileVideo = document.querySelector('#step-3-content .input-video');
+    const mobileCanvas = document.querySelector('#step-3-content .output-canvas');
+    const mobileCanvasCtx = mobileCanvas ? mobileCanvas.getContext('2d') : null;
+    
+    // Update global references back to mobile elements
+    videoElement = mobileVideo;
+    canvasElement = mobileCanvas;
+    canvasCtx = mobileCanvasCtx;
+    
+    // Restart camera with mobile elements
+    startCamera();
+    
+    // Update UI
+    document.body.classList.remove('workout-mode');
+    
+    // Make sure mobile rep counter is back in its original position
+    const mobileRepCounter = document.getElementById('mobile-rep-counter');
+    if (mobileRepCounter) {
+      document.body.appendChild(mobileRepCounter);
+    }
+  }
+  
+  // Show a message to the user
+  function showMessage(message) {
+    alert(message);
+  }
+}
+
+// Setup collapsible sections for mobile
+function setupCollapsibleSections() {
+  // Convert feedback sections to collapsible on mobile
+  if (window.innerWidth <= 768) {
+    const feedbackSections = document.querySelectorAll('.feedback-section');
+    
+    feedbackSections.forEach(section => {
+      // Skip if already converted
+      if (section.classList.contains('collapsible-section')) return;
+      
+      // Create collapsible structure
+      const header = section.querySelector('h4');
+      const content = section.querySelector('p');
+      
+      if (header && content) {
+        // Create collapsible header
+        const collapsibleHeader = document.createElement('div');
+        collapsibleHeader.className = 'collapsible-header';
+        collapsibleHeader.appendChild(header.cloneNode(true));
+        
+        // Add toggle icon
+        const toggleIcon = document.createElement('i');
+        toggleIcon.className = 'fas fa-chevron-down';
+        collapsibleHeader.appendChild(toggleIcon);
+        
+        // Create collapsible content
+        const collapsibleContent = document.createElement('div');
+        collapsibleContent.className = 'collapsible-content';
+        collapsibleContent.appendChild(content.cloneNode(true));
+        
+        // Clear original section and add new structure
+        section.innerHTML = '';
+        section.classList.add('collapsible-section');
+        section.appendChild(collapsibleHeader);
+        section.appendChild(collapsibleContent);
+        
+        // Add toggle functionality
+        collapsibleHeader.addEventListener('click', () => {
+          section.classList.toggle('open');
+          toggleIcon.className = section.classList.contains('open') ? 
+            'fas fa-chevron-up' : 'fas fa-chevron-down';
+        });
+      }
+    });
+  }
+}
+
 // Initialize the application when the DOM is loaded
-document.addEventListener('DOMContentLoaded', initApp);
+document.addEventListener('DOMContentLoaded', () => {
+  initApp();
+  setupMobileStepFlow();
+  
+  // Add resize handler for responsive adjustments
+  window.addEventListener('resize', () => {
+    if (window.innerWidth <= 768) {
+      setupCollapsibleSections();
+    }
+  });
+});
+
+// Custom event for exercise state changes
+function dispatchExerciseStateEvent(active) {
+  const event = new CustomEvent('exercise-state-changed', {
+    detail: { active: active }
+  });
+  document.dispatchEvent(event);
+}
+
+// Override toggleExercise to dispatch state change events
+const originalToggleExercise = toggleExercise;
+toggleExercise = function() {
+  originalToggleExercise.apply(this, arguments);
+  dispatchExerciseStateEvent(isExerciseActive);
+};
