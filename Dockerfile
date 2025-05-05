@@ -1,4 +1,4 @@
-FROM node:18-alpine
+FROM node:18.2-alpine
 
 # Install nginx
 RUN apk add --no-cache nginx
