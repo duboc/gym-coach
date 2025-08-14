@@ -1,14 +1,28 @@
-// Documentation module for displaying exercise metrics and form guidance
+/**
+ * @file Manages the in-app documentation tab, displaying exercise guides,
+ * metric explanations, and other helpful information.
+ */
 import { baseMetrics, exerciseMetrics } from './exercise-metrics.js';
 
+/**
+ * Manages the documentation UI, including rendering different tabs and content.
+ * @class
+ */
 class DocumentationManager {
+  /**
+   * Initializes the DocumentationManager.
+   */
   constructor() {
+    /** @type {HTMLElement|null} The main container for the documentation tab. */
     this.container = null;
+    /** @type {string} The ID of the currently active tab. */
     this.currentTab = 'exercise-form';
+    /** @type {Object|null} The currently selected exercise object. */
     this.currentExercise = null;
+    /** @type {boolean} Whether the documentation tab is currently visible. */
     this.isVisible = false;
     
-    // Bind methods
+    // Bind methods to ensure 'this' context is correct
     this.initialize = this.initialize.bind(this);
     this.createDocumentationTab = this.createDocumentationTab.bind(this);
     this.showDocumentation = this.showDocumentation.bind(this);
@@ -18,14 +32,17 @@ class DocumentationManager {
     this.setExercise = this.setExercise.bind(this);
   }
   
-  // Initialize the documentation manager
+  /**
+   * Initializes the documentation manager by creating the tab and setting up event listeners.
+   * @returns {void}
+   */
   initialize() {
-    // Create the documentation tab if it doesn't exist
+    // Create the documentation tab if it doesn't already exist
     if (!document.getElementById('documentation-tab')) {
       this.createDocumentationTab();
     }
     
-    // Set up event listeners
+    // Set up event listener for the main toggle button
     document.getElementById('toggle-documentation').addEventListener('click', () => {
       if (this.isVisible) {
         this.hideDocumentation();
@@ -34,7 +51,7 @@ class DocumentationManager {
       }
     });
     
-    // Set up tab switching
+    // Set up event listeners for tab switching
     const tabButtons = document.querySelectorAll('.doc-tab-button');
     tabButtons.forEach(button => {
       button.addEventListener('click', () => {
@@ -43,7 +60,11 @@ class DocumentationManager {
     });
   }
   
-  // Create the documentation tab in the UI
+  /**
+   * Creates the documentation tab element and appends it to the DOM.
+   * @private
+   * @returns {void}
+   */
   createDocumentationTab() {
     // Create container
     this.container = document.createElement('div');
@@ -99,18 +120,24 @@ class DocumentationManager {
     this.renderContent();
   }
   
-  // Show the documentation tab
+  /**
+   * Shows the documentation tab and re-renders its content.
+   * @returns {void}
+   */
   showDocumentation() {
     if (this.container) {
       this.container.style.display = 'flex';
       this.isVisible = true;
       
-      // Re-render content in case exercise changed
+      // Re-render content in case the selected exercise has changed
       this.renderContent();
     }
   }
   
-  // Hide the documentation tab
+  /**
+   * Hides the documentation tab.
+   * @returns {void}
+   */
   hideDocumentation() {
     if (this.container) {
       this.container.style.display = 'none';
@@ -118,36 +145,44 @@ class DocumentationManager {
     }
   }
   
-  // Switch between documentation tabs
+  /**
+   * Switches the visible content to the selected tab.
+   * @param {string} tabId - The ID of the tab to display (e.g., 'exercise-form').
+   * @returns {void}
+   */
   switchTab(tabId) {
-    // Update active tab
+    // Update the active tab state
     this.currentTab = tabId;
     
-    // Update tab button styles
+    // Update the visual style of the tab buttons
     const tabButtons = document.querySelectorAll('.doc-tab-button');
     tabButtons.forEach(button => {
-      if (button.dataset.tab === tabId) {
-        button.classList.add('active');
-      } else {
-        button.classList.remove('active');
-      }
+      button.classList.toggle('active', button.dataset.tab === tabId);
     });
     
-    // Render the content for the selected tab
+    // Render the content for the newly selected tab
     this.renderContent();
   }
   
-  // Set the current exercise
+  /**
+   * Sets the current exercise to be displayed in the documentation.
+   * @param {Object} exercise - The exercise object from `exerciseMetrics.js`.
+   * @returns {void}
+   */
   setExercise(exercise) {
     this.currentExercise = exercise;
     
-    // Re-render content if documentation is visible
+    // Re-render content if the documentation tab is currently visible
     if (this.isVisible) {
       this.renderContent();
     }
   }
   
-  // Render the content for the current tab
+  /**
+   * Renders the content for the currently active tab.
+   * @private
+   * @returns {void}
+   */
   renderContent() {
     const contentContainer = document.getElementById('documentation-content');
     if (!contentContainer) return;
@@ -155,6 +190,7 @@ class DocumentationManager {
     // Clear current content
     contentContainer.innerHTML = '';
     
+    // Route to the appropriate rendering function based on the active tab
     switch (this.currentTab) {
       case 'exercise-form':
         this.renderExerciseFormGuide(contentContainer);
@@ -173,9 +209,14 @@ class DocumentationManager {
     }
   }
   
-  // Render exercise form guide
+  /**
+   * Renders the exercise form guide, showing a list of exercises or details for a selected one.
+   * @private
+   * @param {HTMLElement} container - The HTML element to render the content into.
+   * @returns {void}
+   */
   renderExerciseFormGuide(container) {
-    // If no exercise is selected, show a list of all exercises
+    // If no exercise is selected, show a list of all available exercises
     if (!this.currentExercise) {
       container.innerHTML = `
         <div class="doc-section">
@@ -202,12 +243,11 @@ class DocumentationManager {
         exerciseList.appendChild(exerciseItem);
       });
       
-      // Add event listeners to view details buttons
-      const viewButtons = container.querySelectorAll('.view-exercise-details');
-      viewButtons.forEach(button => {
+      // Add event listeners to the "View Details" buttons
+      container.querySelectorAll('.view-exercise-details').forEach(button => {
         button.addEventListener('click', () => {
           const exerciseName = button.dataset.exercise;
-          // Find the exercise in the exercises list and set it as current
+          // Set the selected exercise and re-render the content to show its details
           this.setExercise(exerciseMetrics[exerciseName]);
           this.renderContent();
         });
@@ -216,13 +256,13 @@ class DocumentationManager {
       return;
     }
     
-    // Show details for the selected exercise
+    // If an exercise is selected, show its detailed documentation
     const exercise = this.currentExercise;
     const exerciseName = Object.keys(exerciseMetrics).find(
       name => exerciseMetrics[name] === exercise
     );
     
-    // Create back button
+    // Create a "Back" button to return to the exercise list
     const backButton = document.createElement('button');
     backButton.className = 'btn btn-small back-button';
     backButton.innerHTML = '<i class="fas fa-arrow-left"></i> Back to Exercise List';
@@ -233,7 +273,7 @@ class DocumentationManager {
     
     container.appendChild(backButton);
     
-    // Exercise details
+    // Render exercise details
     const detailsSection = document.createElement('div');
     detailsSection.className = 'doc-section';
     detailsSection.innerHTML = `
@@ -253,7 +293,7 @@ class DocumentationManager {
     
     container.appendChild(detailsSection);
     
-    // Metrics implementation details
+    // Render metrics implementation details for the selected exercise
     const metricsSection = document.createElement('div');
     metricsSection.className = 'doc-section';
     metricsSection.innerHTML = `
@@ -286,7 +326,7 @@ class DocumentationManager {
     
     container.appendChild(metricsSection);
     
-    // Rep counting strategy
+    // Render rep counting strategy
     const repCountingSection = document.createElement('div');
     repCountingSection.className = 'doc-section';
     repCountingSection.innerHTML = `
@@ -298,7 +338,12 @@ class DocumentationManager {
     container.appendChild(repCountingSection);
   }
   
-  // Render metrics explanation
+  /**
+   * Renders the metrics explanation tab with a table of all base metrics.
+   * @private
+   * @param {HTMLElement} container - The HTML element to render the content into.
+   * @returns {void}
+   */
   renderMetricsExplanation(container) {
     container.innerHTML = `
       <div class="doc-section">
@@ -337,7 +382,12 @@ class DocumentationManager {
     `;
   }
   
-  // Render camera setup guide
+  /**
+   * Renders the camera setup guide with tips and recommendations.
+   * @private
+   * @param {HTMLElement} container - The HTML element to render the content into.
+   * @returns {void}
+   */
   renderCameraSetupGuide(container) {
     container.innerHTML = `
       <div class="doc-section">
@@ -425,7 +475,12 @@ class DocumentationManager {
     `;
   }
   
-  // Render feedback system explanation
+  /**
+   * Renders the feedback system explanation tab.
+   * @private
+   * @param {HTMLElement} container - The HTML element to render the content into.
+   * @returns {void}
+   */
   renderFeedbackSystem(container) {
     container.innerHTML = `
       <div class="doc-section">
