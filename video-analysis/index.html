@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Football Video Analysis</title>
+  <!-- MediaPipe dependencies -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js" crossorigin="anonymous"></script>
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="va-container">
+    <header class="va-header">
+      <div class="va-logo">
+        <i class="fas fa-futbol"></i>
+        <h1>Football Video Analysis</h1>
+      </div>
+    </header>
+
+    <main class="va-main">
+      <!-- Step 1: Upload -->
+      <section id="upload-section" class="va-section active">
+        <h2><i class="fas fa-cloud-upload-alt"></i> Upload Video</h2>
+
+        <!-- Tab toggle: Upload File | Search YouTube -->
+        <div class="source-tabs">
+          <button class="source-tab active" data-tab="upload">
+            <i class="fas fa-file-upload"></i> Upload File
+          </button>
+          <button class="source-tab" data-tab="youtube">
+            <i class="fab fa-youtube"></i> Search YouTube
+          </button>
+          <button class="source-tab" data-tab="library">
+            <i class="fas fa-history"></i> Previous Analyses
+          </button>
+        </div>
+
+        <!-- YouTube Search Panel -->
+        <div id="youtube-panel" class="youtube-panel hidden">
+          <div class="youtube-search-bar">
+            <input type="text" id="youtube-query" class="youtube-input" placeholder="Search for football technique videos (e.g. instep kick form)">
+            <button class="btn btn-primary" id="youtube-search-btn">
+              <i class="fas fa-search"></i> Search
+            </button>
+          </div>
+
+          <div id="youtube-results" class="youtube-results"></div>
+
+          <div id="youtube-selected" class="youtube-selected hidden">
+            <div class="youtube-selected-preview">
+              <img id="youtube-selected-thumb" class="youtube-selected-thumb" alt="Selected video">
+              <div class="youtube-selected-info">
+                <h3 id="youtube-selected-title"></h3>
+                <p id="youtube-selected-channel"></p>
+                <p id="youtube-selected-meta"></p>
+              </div>
+            </div>
+            <div class="youtube-selected-actions">
+              <button class="btn btn-primary" id="youtube-import-btn">
+                <i class="fas fa-download"></i> Import & Analyze
+              </button>
+              <button class="btn btn-secondary" id="youtube-clear-btn">
+                <i class="fas fa-times"></i> Clear Selection
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Previous Videos Library Panel -->
+        <div id="library-panel" class="library-panel hidden">
+          <div id="library-videos" class="library-videos"></div>
+        </div>
+
+        <div class="upload-zone" id="upload-zone">
+          <i class="fas fa-film upload-icon"></i>
+          <p class="upload-text">Drag & drop a video file here</p>
+          <p class="upload-subtext">or click to browse</p>
+          <input type="file" id="video-file-input" accept="video/*" hidden>
+          <button class="btn btn-primary" id="browse-button">
+            <i class="fas fa-folder-open"></i> Browse Files
+          </button>
+          <p class="upload-limits">
+            <i class="fas fa-info-circle"></i>
+            Max size: <span id="max-size">100</span>MB | Max duration: 5 minutes | MP4, MOV, WebM
+          </p>
+        </div>
+
+        <div class="upload-config">
+          <div class="config-row">
+            <div class="auto-detect-info">
+              <i class="fas fa-magic"></i>
+              <span>Video type (match vs technique) and exercise auto-detected</span>
+            </div>
+          </div>
+          <!-- Hidden select for backward compat with saved analyses -->
+          <select id="exercise-select" class="form-select" style="display:none">
+          </select>
+        </div>
+
+        <div id="file-preview" class="file-preview hidden">
+          <video id="preview-video" class="preview-video" controls></video>
+          <div class="file-info">
+            <span id="file-name"></span>
+            <span id="file-size"></span>
+          </div>
+          <button class="btn btn-primary" id="start-analysis">
+            <i class="fas fa-play"></i> Start Analysis
+          </button>
+          <button class="btn btn-secondary" id="clear-file">
+            <i class="fas fa-times"></i> Clear
+          </button>
+        </div>
+      </section>
+
+      <!-- Step 2: Processing -->
+      <section id="processing-section" class="va-section">
+        <h2><i class="fas fa-cog fa-spin"></i> Processing Video</h2>
+
+        <div class="processing-pipeline">
+          <div class="pipeline-step" id="step-upload">
+            <div class="step-icon"><i class="fas fa-cloud-upload-alt"></i></div>
+            <div class="step-info">
+              <span class="step-label">Upload to Cloud</span>
+              <span class="step-status">Waiting...</span>
+            </div>
+          </div>
+          <div class="pipeline-step" id="step-triage">
+            <div class="step-icon"><i class="fas fa-magic"></i></div>
+            <div class="step-info">
+              <span class="step-label">Detect Video Type</span>
+              <span class="step-status">Waiting...</span>
+            </div>
+          </div>
+          <div class="pipeline-step" id="step-extract">
+            <div class="step-icon"><i class="fas fa-brain"></i></div>
+            <div class="step-info">
+              <span class="step-label">Extract Pose Data</span>
+              <span class="step-status">Waiting...</span>
+            </div>
+          </div>
+          <div class="pipeline-step" id="step-analyze">
+            <div class="step-icon"><i class="fas fa-robot"></i></div>
+            <div class="step-info">
+              <span class="step-label">AI Analysis</span>
+              <span class="step-status">Waiting...</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="progress-container">
+          <div class="progress-bar">
+            <div class="progress-fill" id="progress-fill"></div>
+          </div>
+          <div class="progress-label">
+            <span id="progress-stage">Preparing...</span>
+            <span id="progress-percentage">0%</span>
+          </div>
+        </div>
+
+        <!-- Hidden elements for MediaPipe processing -->
+        <video id="processing-video" style="display:none"></video>
+        <canvas id="processing-canvas" style="display:none"></canvas>
+      </section>
+
+      <!-- Step 3: Results -->
+      <section id="results-section" class="va-section">
+        <h2><i class="fas fa-chart-bar"></i> Analysis Results</h2>
+
+        <div class="results-view-tabs hidden" id="results-view-tabs">
+          <button class="results-view-tab" data-view="match">
+            <i class="fas fa-users"></i> Match Analysis
+          </button>
+          <button class="results-view-tab" data-view="technique">
+            <i class="fas fa-running"></i> Technique Analysis
+          </button>
+        </div>
+
+        <div class="results-layout">
+          <!-- Video player with overlay -->
+          <div class="video-player-container">
+            <div class="video-wrapper">
+              <video id="result-video" class="result-video"></video>
+              <canvas id="overlay-canvas" class="overlay-canvas"></canvas>
+            </div>
+
+            <div class="playback-controls">
+              <button class="btn btn-icon" id="play-pause-btn">
+                <i class="fas fa-play"></i>
+              </button>
+              <input type="range" id="video-timeline" class="timeline-slider" min="0" max="1000" value="0">
+              <span class="time-display">
+                <span id="current-time">0:00</span> / <span id="total-time">0:00</span>
+              </span>
+            </div>
+
+            <div class="overlay-controls">
+              <span class="overlay-label">Overlay:</span>
+              <button class="btn btn-overlay active" data-mode="skeleton">
+                <i class="fas fa-bone"></i> Skeleton
+              </button>
+              <button class="btn btn-overlay" data-mode="angles">
+                <i class="fas fa-drafting-compass"></i> Angles
+              </button>
+              <button class="btn btn-overlay" data-mode="paths">
+                <i class="fas fa-route"></i> Paths
+              </button>
+              <button class="btn btn-overlay" data-mode="detection">
+                <i class="fas fa-crosshairs"></i> Detection
+              </button>
+              <button class="btn btn-overlay" data-mode="full">
+                <i class="fas fa-layer-group"></i> Full
+              </button>
+              <button class="btn btn-overlay" data-mode="none">
+                <i class="fas fa-eye-slash"></i> None
+              </button>
+              <button id="focus-mode-btn" class="btn btn-overlay" style="display:none;">
+                <i class="fas fa-crosshairs"></i> Focus & Follow
+              </button>
+            </div>
+          </div>
+
+          <!-- Technique mode: Analysis cards (existing) -->
+          <div class="analysis-cards" id="technique-results">
+            <div class="analysis-card">
+              <h3><i class="fas fa-chart-line"></i> Overall Performance</h3>
+              <div id="result-overall" class="card-content">Analyzing...</div>
+            </div>
+
+            <div class="analysis-card">
+              <h3><i class="fas fa-clipboard-check"></i> Form Quality</h3>
+              <div id="result-form" class="card-content">Analyzing...</div>
+            </div>
+
+            <div class="analysis-card">
+              <h3><i class="fas fa-star"></i> Key Moments</h3>
+              <div id="result-moments" class="card-content">Analyzing...</div>
+            </div>
+
+            <div class="analysis-card">
+              <h3><i class="fas fa-chart-area"></i> Progression</h3>
+              <div id="result-progression" class="card-content">Analyzing...</div>
+            </div>
+
+            <div class="analysis-card">
+              <h3><i class="fas fa-lightbulb"></i> Improvement Plan</h3>
+              <div id="result-improvement" class="card-content">Analyzing...</div>
+            </div>
+          </div>
+
+          <!-- Match mode: Tabbed results -->
+          <div class="match-results hidden" id="match-results">
+            <div class="match-stats-dashboard" id="match-stats-dashboard"></div>
+            <div class="match-tabs">
+              <button class="match-tab active" data-tab="tactical">
+                <i class="fas fa-chess"></i> Tactical
+              </button>
+              <button class="match-tab" data-tab="players">
+                <i class="fas fa-users"></i> Players
+              </button>
+              <button class="match-tab" data-tab="events">
+                <i class="fas fa-flag"></i> Events
+              </button>
+              <button class="match-tab" data-tab="possession">
+                <i class="fas fa-futbol"></i> Possession
+              </button>
+            </div>
+
+            <!-- Tactical Tab -->
+            <div class="match-tab-content active" id="tab-tactical">
+              <div id="chart-pitch-map"></div>
+              <div class="analysis-card">
+                <h3><i class="fas fa-chess-board"></i> Formation</h3>
+                <div id="match-formation" class="card-content">Analyzing...</div>
+              </div>
+              <div class="analysis-card">
+                <h3><i class="fas fa-arrow-right"></i> Attacking Patterns</h3>
+                <div id="match-attacking" class="card-content">Analyzing...</div>
+              </div>
+              <div class="analysis-card">
+                <h3><i class="fas fa-shield-alt"></i> Defending Patterns</h3>
+                <div id="match-defending" class="card-content">Analyzing...</div>
+              </div>
+              <div class="analysis-card">
+                <h3><i class="fas fa-chess"></i> Tactical Summary</h3>
+                <div id="match-tactical-summary" class="card-content">Analyzing...</div>
+              </div>
+            </div>
+
+            <!-- Players Tab -->
+            <div class="match-tab-content" id="tab-players">
+              <div id="chart-player-comparison"></div>
+              <div id="player-cards-container" class="player-cards-container">
+                <!-- Player cards inserted dynamically -->
+              </div>
+              <div id="player-analyze-action" class="player-analyze-action hidden">
+                <button class="btn btn-primary" id="analyze-player-btn">
+                  <i class="fas fa-search-plus"></i> Analyze Player Technique
+                </button>
+              </div>
+            </div>
+
+            <!-- Events Tab -->
+            <div class="match-tab-content" id="tab-events">
+              <div id="chart-events-distribution"></div>
+              <div class="analysis-card">
+                <h3><i class="fas fa-list-ol"></i> Events Timeline</h3>
+                <div id="match-events-timeline" class="card-content">Analyzing...</div>
+              </div>
+              <div class="analysis-card">
+                <h3><i class="fas fa-star"></i> Key Plays</h3>
+                <div id="match-key-plays" class="card-content">Analyzing...</div>
+              </div>
+              <div class="analysis-card">
+                <h3><i class="fas fa-bolt"></i> Standout Moments</h3>
+                <div id="match-standout" class="card-content">Analyzing...</div>
+              </div>
+              <div id="events-list" class="events-list"></div>
+            </div>
+
+            <!-- Possession Tab -->
+            <div class="match-tab-content" id="tab-possession">
+              <div class="possession-bar-container" id="possession-bar-container">
+                <!-- Possession bar inserted dynamically -->
+              </div>
+              <div id="chart-possession-flow"></div>
+              <div class="analysis-card">
+                <h3><i class="fas fa-chart-pie"></i> Possession Summary</h3>
+                <div id="match-possession-summary" class="card-content">Analyzing...</div>
+              </div>
+              <div class="analysis-card">
+                <h3><i class="fas fa-exchange-alt"></i> Possession Changes</h3>
+                <div id="match-possession-changes" class="card-content">Analyzing...</div>
+              </div>
+              <div class="analysis-card">
+                <h3><i class="fas fa-map"></i> Territorial Control</h3>
+                <div id="match-territorial" class="card-content">Analyzing...</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Event timeline strip below video -->
+          <div class="event-strip hidden" id="event-strip"></div>
+        </div>
+
+        <div class="result-actions">
+          <button class="btn btn-primary" id="download-report">
+            <i class="fas fa-download"></i> Download Report
+          </button>
+          <button class="btn btn-secondary" id="analyze-another">
+            <i class="fas fa-redo"></i> Analyze Another Video
+          </button>
+        </div>
+
+        <!-- Player technique analysis slide-out panel -->
+        <div id="player-analysis-panel" class="player-analysis-panel hidden">
+          <div class="panel-header">
+            <h3><i class="fas fa-user"></i> Player <span id="panel-player-id"></span> — Technique Analysis</h3>
+            <button class="btn btn-icon" id="close-player-panel">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          <div id="panel-player-content" class="panel-content">
+            <div class="panel-loading">
+              <i class="fas fa-spinner fa-spin"></i> Analyzing player technique...
+            </div>
+          </div>
+        </div>
+
+        <!-- Player Focus Mode slide-out panel -->
+        <div id="focus-panel" class="focus-panel hidden">
+          <div class="focus-panel-header">
+            <h3>
+              <i class="fas fa-crosshairs"></i>
+              Player <span id="focus-player-id"></span>
+            </h3>
+            <div class="focus-header-controls">
+              <span id="focus-status" class="focus-status">Watching...</span>
+              <button class="btn btn-icon" id="close-focus-panel">
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
+          </div>
+          <div id="focus-cards" class="focus-cards"></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="va-footer">
+      <p>&copy; 2025 Football Video Analysis | Built with MediaPipe & Gemini AI</p>
+    </footer>
+  </div>
+
+  <script type="module" src="script.js"></script>
+</body>
+</html>

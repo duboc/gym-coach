@@ -9,12 +9,12 @@ const exerciseDetailsContainer = document.getElementById('exercise-details');
 const startExerciseButton = document.getElementById('start-exercise');
 const repCounterContainer = document.getElementById('rep-counter-container');
 
-// Import modules
-import { geminiAPI } from './gemini-api.js';
+// Import modules — shared modules from ../shared/, app-specific from ./
+import { geminiAPI } from '../shared/gemini-api.js';
 import exercisesModule, { exercises } from './exercises.js';
-import FormVisualizer from './visualization.js';
-import AudioCoach from './audio-coach.js';
-import AdvancedAnalytics from './advanced-analytics.js';
+import FormVisualizer from '../shared/visualization.js';
+import AudioCoach from '../shared/audio-coach.js';
+import AdvancedAnalytics from '../shared/advanced-analytics.js';
 import documentationManager from './documentation.js';
 import { exerciseMetrics, determineFeedbackSeverity, smoothAngle, calculateAngle } from './exercise-metrics.js';
 
@@ -74,16 +74,68 @@ function initApp() {
   // Initialize visualization
   visualizer = new FormVisualizer(canvasElement, canvasCtx);
   
-  // Initialize audio coach
+  // Initialize audio coach and register gym-specific phrases
   audioCoach = new AudioCoach({
     enabled: true,
     feedbackFrequency: 'normal'
   });
-  
+  // Register gym exercise phrases
+  audioCoach.registerExercisePhrases("Dumbbell Bicep Curls", {
+    form: ["Keep your elbows fixed at your sides.", "Maintain a straight wrist throughout the movement.", "Control the weight on the way down.", "Fully extend your arms at the bottom."],
+    breathing: ["Exhale as you curl up, inhale as you lower.", "Breathe out during the effort phase."],
+    corrections: { elbow: ["Keep your elbows steady at your sides.", "Don't let your elbows move forward."], shoulder: ["Keep your shoulders down and back.", "Don't shrug your shoulders."], wrist: ["Keep your wrists straight.", "Don't bend your wrists."] }
+  });
+  audioCoach.registerExercisePhrases("Dumbbell Shoulder Press", {
+    form: ["Keep your core engaged.", "Press the weights directly upward.", "Lower the weights with control.", "Keep your back straight."],
+    breathing: ["Exhale as you press up, inhale as you lower.", "Breathe out during the pressing phase."],
+    corrections: { elbow: ["Keep your elbows at 90 degrees at the bottom.", "Don't flare your elbows too far out."], shoulder: ["Keep your shoulders down away from your ears.", "Don't shrug as you press."], back: ["Maintain a neutral spine.", "Don't arch your lower back."] }
+  });
+
+  // Set Gemini context provider for gym exercises
+  geminiAPI.setExerciseContextProvider((exerciseName) => {
+    const contextMap = {
+      "Dumbbell Bicep Curls": {
+        exerciseContext: "Bicep curls target the biceps brachii with secondary activation of the forearms. This isolation exercise is fundamental for arm strength and definition.",
+        formCriteria: "- Elbows should remain fixed at sides throughout the movement\n- Wrists should remain straight, not flexed or extended\n- Full range of motion from full extension to full contraction\n- Controlled tempo on both concentric and eccentric phases\n- Shoulders should remain level and stable",
+        commonErrors: "- Using momentum/swinging the weights\n- Moving elbows forward during lifting phase\n- Incomplete range of motion\n- Excessive shoulder involvement\n- Uneven lifting (one arm working harder)",
+        breathingTechnique: "Exhale during the concentric phase (lifting the weight), inhale during the eccentric phase (lowering the weight). Focus on maintaining core engagement throughout."
+      },
+      "Dumbbell Shoulder Press": {
+        exerciseContext: "Shoulder press primarily targets the deltoids with secondary activation of the triceps and upper chest. This compound movement is essential for shoulder strength and stability.",
+        formCriteria: "- Maintain neutral spine alignment throughout the movement\n- Symmetrical arm movement on both sides\n- Elbows should be at approximately 90° in the starting position\n- Wrists should be stacked over elbows\n- Full extension at the top without locking elbows",
+        commonErrors: "- Excessive arching of lower back\n- Uneven pressing (one arm higher than the other)\n- Flaring elbows too far forward\n- Incomplete range of motion\n- Shrugging shoulders during the press",
+        breathingTechnique: "Exhale during the pressing phase (pushing weights up), inhale during the lowering phase. Maintain core bracing to protect the lower back."
+      },
+      "Dumbbell Lateral Raises": {
+        exerciseContext: "Lateral raises isolate the lateral deltoids, crucial for shoulder width and definition. This exercise requires strict form to be effective and safe.",
+        formCriteria: "- Slight bend in the elbows maintained throughout\n- Controlled movement without momentum\n- Hands should rise to shoulder level, not above\n- Thumbs should be slightly higher than pinkies\n- Shoulders should remain depressed",
+        commonErrors: "- Using too much weight and compromising form\n- Swinging/using momentum\n- Shrugging shoulders during the lift\n- Raising arms too high\n- Internal rotation of shoulders",
+        breathingTechnique: "Exhale as you raise the weights, inhale as you lower them. Focus on controlled breathing to maintain stability."
+      },
+      "Dumbbell Bent-Over Rows": {
+        exerciseContext: "Bent-over rows target the latissimus dorsi, rhomboids, and rear deltoids. This compound pull exercise is essential for back strength and posture.",
+        formCriteria: "- Maintain flat back position throughout\n- Hinge at hips with slight knee bend\n- Pull elbows close to body, not flared out\n- Squeeze shoulder blades together at top\n- Controlled lowering phase",
+        commonErrors: "- Rounding the back during the exercise\n- Using momentum/jerking the weights\n- Insufficient range of motion\n- Lifting torso during the pull\n- Flaring elbows too wide",
+        breathingTechnique: "Exhale during the pulling phase, inhale during the lowering phase. Maintain braced core to protect the lower back."
+      }
+    };
+    return contextMap[exerciseName] || {
+      exerciseContext: "This resistance exercise requires proper form for effectiveness and safety.",
+      formCriteria: "- Maintain proper joint alignment\n- Use controlled movements\n- Complete full range of motion\n- Keep core engaged\n- Maintain symmetry",
+      commonErrors: "- Using momentum instead of muscle control\n- Incomplete range of motion\n- Poor posture/alignment\n- Uneven effort between sides\n- Holding breath",
+      breathingTechnique: "Exhale during the exertion phase and inhale during the return phase."
+    };
+  });
+
+  // Set frame snapshot provider for enhanced AI feedback
+  geminiAPI.setFrameSnapshotProvider(() => {
+    return canvasElement.toDataURL('image/jpeg', 0.6);
+  });
+
   // Initialize advanced analytics
   analytics = new AdvancedAnalytics();
   analytics.loadExerciseData(); // Load any existing data
-  
+
   // Initialize documentation manager
   documentationManager.initialize();
   
@@ -469,10 +521,11 @@ function onResults(results) {
         // Update visualizer with latest data
         if (visualizer) {
           visualizer.update(
-            lastPoseData, 
-            metrics.formQuality, 
-            metrics.formIssues, 
-            selectedExercise.name
+            lastPoseData,
+            metrics.formQuality,
+            metrics.formIssues,
+            selectedExercise.name,
+            exerciseMetrics[selectedExercise.name]
           );
           visualizer.render(metrics);
         }

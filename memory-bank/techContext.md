@@ -1,191 +1,79 @@
-# Technical Context: Fitness Tracker with MediaPipe
+# Technical Context: Football Video Analysis
 
 ## Technology Stack
 
-### Core Technologies
+### Core Client Technologies
 
 | Technology | Purpose | Implementation |
 |------------|---------|----------------|
-| **HTML5** | Structure and content | Standard semantic HTML with responsive layout |
-| **CSS3** | Styling and layout | Custom CSS with variables for theming |
-| **JavaScript (ES6+)** | Application logic | Modular JS with ES6 modules |
-| **MediaPipe** | Pose detection | Holistic model for full-body tracking |
-| **Canvas API** | Visualization | Drawing pose landmarks and visual feedback |
-| **Web Speech API** | Audio feedback | Speech synthesis for voice coaching |
-| **Fetch API** | Network requests | API calls to Gemini and loading resources |
-| **LocalStorage API** | Data persistence | Storing user preferences and exercise history |
+| **HTML5/CSS3** | Structure, styling, layout | Standard semantic HTML with custom CSS. |
+| **JavaScript (ES6+)** | Application logic | Modular JS with ES6 modules for client-side processing. |
+| **MediaPipe** | Pose detection | Holistic model for full-body tracking (via CDN). |
+| **Canvas API** | Visualization | Drawing pose landmarks, extracting video frames, and visual feedback overlays. |
+| **Web Speech API** | Audio feedback | Speech synthesis for voice coaching. |
+| **LocalStorage API** | Data persistence | Storing user preferences, API keys, and analysis history. |
 
-### External Dependencies
+### Backend / API Integrations
 
-| Dependency | Version | Purpose |
-|------------|---------|---------|
-| **MediaPipe Holistic** | CDN | Full-body pose, face, and hand tracking |
-| **MediaPipe Drawing Utils** | CDN | Utilities for rendering pose landmarks |
-| **MediaPipe Camera Utils** | CDN | Camera access and processing |
-| **Font Awesome** | 6.4.2 | Icons for UI elements |
-| **Google Gemini API** | 2.0-flash | AI-powered exercise feedback |
+| Technology | Purpose |
+|------------|---------|
+| **Google Gemini API** | AI-powered multimodal coaching feedback (used for match strategy, technique identification, and deep per-player analysis). |
+| **Node.js / Express** | Backend server (`server.js`) serving static files, proxying YouTube videos, routing to the ML pipeline, and handling Gemini API calls (e.g. `/api/video/analyze-player`, `/api/video/triage`). |
+| **Python ML Pipeline** | A Python script (`ml_pipeline.py`) leveraging YOLOv8, ByteTrack, and SigLIP for player detection, tracking, tracking deduplication (fingerprinting), and non-player filtering. |
+| **YouTube Data API** | Searching and importing football technique videos from YouTube for analysis. |
 
-## Development Environment
+## Application Structure
 
-The application is developed as a client-side web application with no build process or bundling. Files are loaded directly by the browser using ES6 module imports.
+The application is structured around the football video analysis domain and shared core logic:
 
-### File Structure
-
-```
+```text
 /
-├── index.html           # Main HTML entry point
-├── styles.css           # Global styles
-├── script.js            # Main application logic
-├── exercises.js         # Exercise definitions
-├── visualization.js     # Form visualization module
-├── audio-coach.js       # Audio feedback module
-├── gemini-api.js        # Gemini API integration
-├── advanced-analytics.js # Exercise analytics
-├── env-loader.js        # Environment configuration
-├── .env                 # Environment variables (gitignored)
-├── run.sh               # Helper script to start local server
-└── favicon.ico          # Application icon
+├── index.html           # Main entry point (redirects to /video-analysis/)
+├── server.js            # Node.js Express server (handles API endpoints, YouTube, and ML routing)
+├── ml_pipeline.py       # Python script handling YOLOv8 tracking, SigLIP fingerprinting, and non-player filtering
+├── run.sh               # Helper script to start the server
+├── shared/              # Core logic for computer vision and AI
+│   ├── gemini-api.js
+│   ├── pose-utils.js
+│   ├── audio-coach.js
+│   └── video-overlay.js # Renders bounding boxes and dims non-players
+├── football/            # Football technique definitions and metrics
+│   ├── techniques.js
+│   └── technique-metrics.js
+└── video-analysis/      # Video upload and YouTube analysis UI module
+    ├── index.html       # Includes dual-view tabs and player-analysis slide-out panel
+    └── script.js        # Orchestrates the parallel pipelines (ML + MediaPipe)
 ```
 
-### Local Development
+## Technical Constraints & Decisions
 
-The application can be run using any local HTTP server. A helper script `run.sh` is provided that starts a Python HTTP server on port 8000.
+### Dual Pipeline Architecture
 
-## Technical Constraints
+- **Decision:** Rather than having the user manually select "Match" or "Technique" mode, the application runs both a backend ML pipeline (for bounding boxes, tracking, and team clustering) and a frontend MediaPipe pipeline (for pose keypoints) simultaneously. 
+- **Implementation:** Both pipelines run in parallel. A quick "triage" step (`/api/video/triage`) determines the default view (match vs technique), but data for both is always extracted and Gemini is prompted for both.
 
-### Browser Compatibility
+### Client-Side vs Server-Side Processing
 
-- **Modern browsers only**: Chrome, Firefox, Edge, Safari (latest versions)
-- Requires support for:
-  - ES6 Modules
-  - Canvas API
-  - Web Speech API
-  - MediaDevices API (for camera access)
-  - Fetch API
-  - LocalStorage API
+- **MediaPipe (Client-Side):** Pose detection is computationally intensive. Running this directly in the browser ensures maximum privacy for technique analysis.
+- **YOLOv8 & SigLIP (Server-Side):** The Python ML pipeline runs server-side to handle complex object tracking, track fingerprinting (merging tracks of the same player), and non-player filtering (dimming refs and coaches).
 
-### Security Requirements
+### Video Analysis vs. Real-Time Webcam
 
-- **HTTPS or localhost**: Camera access requires a secure context
-- **Gemini API Key**: Required for AI-powered feedback
-- **User Permissions**: Camera access requires explicit user permission
+- **Decision:** This branch focuses exclusively on analyzing pre-recorded videos (local uploads or YouTube imports) rather than live webcam feeds.
+- **Implementation:** The system uses a hidden `<video>` element, plays it, and extracts frames to a `<canvas>` to pass to MediaPipe. The data is aggregated into a timeline so the user can review specific phases (e.g., ball contact) interactively.
 
-### Performance Considerations
+### Backend Proxy for YouTube
 
-- **CPU Usage**: Real-time pose detection is computationally intensive
-- **Memory Usage**: Tracking exercise history and analytics data
-- **Network Usage**: 
-  - Initial loading of MediaPipe models (~13MB)
-  - Periodic API calls to Gemini for feedback
-
-### Responsiveness
-
-- **Desktop-first design**: Optimized for desktop/laptop use with webcam
-- **Responsive breakpoints**: Adapts to different screen sizes
-- **Mobile limitations**: Camera positioning may be challenging on mobile devices
-
-## Integration Points
-
-### MediaPipe Integration
-
-```javascript
-// Initialize MediaPipe Holistic
-holistic = new Holistic({
-  locateFile: (file) => {
-    return `https://cdn.jsdelivr.net/npm/@mediapipe/holistic/${file}`;
-  }
-});
-
-// Configure model options
-holistic.setOptions({
-  modelComplexity: 1,
-  smoothLandmarks: true,
-  enableSegmentation: true,
-  smoothSegmentation: true,
-  refineFaceLandmarks: false,
-  minDetectionConfidence: 0.5,
-  minTrackingConfidence: 0.5
-});
-
-// Set up result handler
-holistic.onResults(onResults);
-```
+- **Why?** Fetching video frames from YouTube directly in the browser via Canvas triggers strict CORS (Cross-Origin Resource Sharing) security violations.
+- **Implementation:** The `server.js` Node backend acts as a proxy, safely downloading the YouTube video and serving it to the client as a clean, local-origin asset that the Canvas API can read.
 
 ### Gemini API Integration
 
-```javascript
-// API endpoint
-const apiEndpoint = 'https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent';
+- Used to turn raw pose data, joint angles, and phase information into human-readable coaching cues.
+- Generates structured output by providing explicit prompt instructions and passing frame-by-frame metric summaries of the football technique.
 
-// Request format
-const requestBody = {
-  contents: [
-    {
-      role: "user",
-      parts: [{ text: prompt }]
-    }
-  ],
-  generationConfig: {
-    temperature: temperature,
-    topK: 40,
-    topP: 0.95,
-    maxOutputTokens: 1024
-  }
-};
-```
+## Deployment Environment
 
-## Technical Decisions
-
-### Why MediaPipe?
-
-- **Accuracy**: High-quality pose detection with minimal latency
-- **Client-side processing**: No need for server-side processing
-- **Comprehensive tracking**: Includes pose, hand, and face landmarks
-- **Web integration**: Designed to work well in browser environments
-
-### Why Gemini API?
-
-- **Advanced language capabilities**: Provides detailed, contextual feedback
-- **Structured output**: Can generate formatted feedback in specific sections
-- **Low latency**: Fast enough for near-real-time feedback
-- **Customizable**: Adjustable parameters for response style
-
-### Why No Backend?
-
-- **Simplicity**: Reduces deployment complexity
-- **Privacy**: All processing happens on the client
-- **Cost**: No server infrastructure needed
-- **Offline potential**: Could work offline except for API calls
-
-### Why ES6 Modules?
-
-- **Code organization**: Clean separation of concerns
-- **No build step**: Direct browser loading without bundling
-- **Modern standard**: Well-supported in target browsers
-- **Explicit dependencies**: Clear import/export relationships
-
-## Future Technical Considerations
-
-1. **Performance Optimization**:
-   - Worker threads for analytics processing
-   - Reduced model complexity option for lower-end devices
-
-2. **Offline Support**:
-   - Service Worker for offline access
-   - Caching of MediaPipe models
-   - Offline fallback for Gemini API
-
-3. **Build Process**:
-   - Consider adding bundling for production
-   - Code minification and optimization
-   - Asset optimization
-
-4. **Backend Integration**:
-   - Optional backend for data persistence
-   - User accounts and progress syncing
-   - Shared workout programs
-
-5. **Mobile Optimization**:
-   - Dedicated mobile interface
-   - Device orientation handling
-   - Touch-optimized controls
+- **Target:** Google Cloud Run (via Docker).
+- **Environment Variables:** `gemini-apikey` and YouTube API keys for the backend.
+- `deploy-to-cloud-run.sh` script automates the Docker build and Cloud Run deployment process.

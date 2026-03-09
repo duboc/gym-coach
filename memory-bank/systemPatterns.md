@@ -1,99 +1,87 @@
-# System Patterns: Fitness Tracker with MediaPipe
+# System Patterns: Football Video Analysis
 
 ## Architecture Overview
 
-The Fitness Tracker application follows a modular, component-based architecture that separates concerns and promotes maintainability. The system is built entirely as a client-side web application with no backend dependencies except for API calls to external services.
+The Football Video Analysis application follows a component-based architecture designed for client-side processing of video files with an optional lightweight backend (Node.js/Express) for YouTube integration.
+
+The architecture is divided into a shared core layer for computer vision and AI, and the football domain module:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      Main Application                        │
+│                      Main Application                       │
 │                                                             │
-│  ┌─────────────┐   ┌─────────────┐   ┌─────────────────┐   │
-│  │ Exercise    │   │ MediaPipe   │   │ User Interface  │   │
-│  │ Management  │   │ Integration │   │ Components      │   │
-│  └─────────────┘   └─────────────┘   └─────────────────┘   │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │                    Shared Core Layer                  │  │
+│  │                                                       │  │
+│  │ ┌──────────────┐ ┌──────────────┐ ┌─────────────────┐ │  │
+│  │ │ MediaPipe    │ │ Gemini API   │ │ Audio Feedback  │ │  │
+│  │ │ Integration  │ │ Integration  │ │ System          │ │  │
+│  │ └──────────────┘ └──────────────┘ └─────────────────┘ │  │
+│  │ ┌──────────────┐ ┌──────────────┐ ┌─────────────────┐ │  │
+│  │ │ Pose Utils & │ │ Visualization│ │ Advanced        │ │  │
+│  │ │ Math         │ │ Engine       │ │ Analytics       │ │  │
+│  │ └──────────────┘ └──────────────┘ └─────────────────┘ │  │
+│  └───────────────────────────────────────────────────────┘  │
 │                                                             │
-│  ┌─────────────┐   ┌─────────────┐   ┌─────────────────┐   │
-│  │ Form        │   │ Analytics   │   │ Gemini API      │   │
-│  │ Visualization│   │ Engine     │   │ Integration     │   │
-│  └─────────────┘   └─────────────┘   └─────────────────┘   │
-│                                                             │
-│  ┌─────────────┐   ┌─────────────┐                         │
-│  │ Audio       │   │ Environment │                         │
-│  │ Feedback    │   │ Management  │                         │
-│  └─────────────┘   └─────────────┘                         │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │                 Football Domain Module                │  │
+│  │                                                       │  │
+│  │ - Video File Upload & Processing                      │  │
+│  │ - YouTube Search & Import                             │  │
+│  │ - Technique Analysis (e.g., Instep Kick)              │  │
+│  │ - Form Review, Metrics & Phase Detection              │  │
+│  └───────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ## Core Design Patterns
 
-### 1. Module Pattern
+### 1. Modular Separation of Concerns
 
-The application is organized into distinct JavaScript modules, each with a specific responsibility:
+The application is organized into distinct directories:
 
-- **script.js**: Main application logic and initialization
-- **exercises.js**: Exercise definitions and metadata
-- **visualization.js**: Form visualization and feedback rendering
-- **audio-coach.js**: Audio feedback and voice coaching
-- **gemini-api.js**: Integration with Google's Gemini API
-- **advanced-analytics.js**: Exercise data analysis and insights
-- **env-loader.js**: Environment configuration management
+- **/shared/**: Contains logic used by the core computer vision and AI engine (`pose-utils.js`, `gemini-api.js`, `audio-coach.js`, `visualization.js`).
+- **/football/** & **/video-analysis/**: Contains the video-based analysis UI, YouTube integration, and football-specific technique definitions (`script.js`, `techniques.js`, `technique-metrics.js`).
 
-Each module exports a clean interface for other modules to consume, hiding implementation details.
+### 2. Observer & Processing Pipeline
 
-### 2. Observer Pattern
+The application processes videos using a frame-by-frame extraction pipeline:
 
-The application uses an event-driven approach for handling pose detection and updates:
+- A hidden `<video>` element plays the source file (upload or YouTube).
+- Canvas extracts frames and feeds them to the MediaPipe Holistic model.
+- The main domain script (`video-analysis/script.js`) observes MediaPipe's output, applies mathematical transformations (via `pose-utils.js`), and stores the frame data.
 
-- MediaPipe's Holistic model emits results that the application observes
-- The main application acts as a central hub, distributing pose data to various components
-- Components (visualization, analytics, audio) react to pose data changes
+### 3. Factory/Configuration Pattern
 
-### 3. Factory Pattern
+Technique objects are created using a standardized configuration pattern in `football/techniques.js`. An action like a "Football Instep Kick" is defined with properties like:
+- Target metrics (e.g., knee angle, hip alignment, torso lean).
+- Camera view requirements (Side vs. Front).
+- Phase detection strategies (Approach, Plant, Contact, Follow-through).
 
-Exercise objects are created using a factory pattern in exercises.js, providing a consistent structure for all exercise definitions with properties like:
+### 4. Strategy Pattern (Phase Detection)
 
-- Basic metadata (name, description, difficulty)
-- Target muscles
-- Instructions
-- Key form points
-- Rep goals
-
-### 4. Strategy Pattern
-
-Different strategies are employed for analyzing different exercise types:
-
-- Each exercise has specific form analysis logic
-- Joint angle calculations vary based on exercise type
-- Rep counting uses different state machines depending on the exercise
-
-### 5. Command Pattern
-
-User interactions trigger commands that are executed by the application:
-
-- Starting/stopping camera
-- Selecting exercises
-- Starting/stopping exercise tracking
-- Toggling visualization options
+Different strategies are employed for analyzing different athletic movements:
+- The system must identify distinct phases of a movement (e.g., finding the exact frame of ball contact).
+- State machines evaluate velocity, joint angles, and foot position relative to the ground to determine current phase.
 
 ## Data Flow
 
 ```
 ┌──────────────┐    ┌───────────────┐    ┌────────────────┐
-│ Camera Input │───▶│ MediaPipe     │───▶│ Pose Detection │
-└──────────────┘    │ Holistic Model│    │ Results        │
-                    └───────────────┘    └────────┬───────┘
+│ Input Source │───▶│ MediaPipe     │───▶│ Pose Detection │
+│ (Video/YT)   │    │ Holistic Model│    │ Results        │
+└──────────────┘    └───────────────┘    └────────┬───────┘
                                                   │
                                                   ▼
 ┌──────────────┐    ┌───────────────┐    ┌────────────────┐
-│ Form         │◀───│ Exercise      │◀───│ Pose Analysis  │
-│ Feedback     │    │ Analysis      │    │ & Processing   │
+│ Form         │◀───│ Football      │◀───│ Pose Analysis  │
+│ Feedback     │    │ Techniques    │    │ & Processing   │
 └──────────────┘    └───────────────┘    └────────────────┘
        │                    │                     │
        ▼                    ▼                     ▼
 ┌──────────────┐    ┌───────────────┐    ┌────────────────┐
 │ Visual       │    │ Audio         │    │ Analytics      │
-│ Feedback     │    │ Feedback      │    │ & Tracking     │
+│ Overlays     │    │ Synthesis     │    │ Dashboard      │
 └──────────────┘    └───────────────┘    └────────────────┘
                                                   │
                                                   ▼
@@ -101,182 +89,30 @@ User interactions trigger commands that are executed by the application:
                                          │ Gemini API     │
                                          │ Integration    │
                                          └────────────────┘
-                                                  │
-                                                  ▼
-                                         ┌────────────────┐
-                                         │ AI-Powered     │
-                                         │ Feedback       │
-                                         └────────────────┘
 ```
 
 ## Key Implementation Patterns
 
-### 1. Real-time Pose Analysis
+### 1. Dual Pipeline Processing & Triage
 
-- Camera feed is processed frame-by-frame
-- MediaPipe Holistic model extracts pose landmarks
-- Landmarks are normalized to canvas coordinates
-- Joint angles are calculated using vector mathematics
-- Form quality is assessed based on exercise-specific criteria
+- The system runs two analysis pipelines in parallel for every video: 
+  1. A backend ML pipeline (YOLOv8 + SigLIP + tracking) for match-level tactical analysis and player tracking.
+  2. A client-side MediaPipe pipeline for detailed player pose and technique extraction.
+- A **Triage** step happens immediately after upload (sampling a few frames with YOLOv8) to auto-detect if the video is primarily a "match" or a "technique" clip. This determines which analysis tab is presented by default.
+- Results from both pipelines are stored and toggleable via UI tabs.
 
-#### Enhanced Angle Calculation System
+### 2. Autonomous Analysis & On-Demand Deep Dives
 
-The angle calculation system is being enhanced with the following components:
+- Users no longer manually select the technique being analyzed; the AI auto-detects the action using the Gemini API based on pose data.
+- **On-Demand Player Analysis**: By clicking on a specific player tracked in the overlay, users can trigger a deep, player-specific technique analysis via a dedicated `/api/video/analyze-player` endpoint. Results are cached client-side.
 
-```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│ Raw Landmark    │────▶│ Landmark        │────▶│ Angle           │
-│ Detection       │     │ Filtering       │     │ Calculation     │
-└─────────────────┘     └─────────────────┘     └────────┬────────┘
-                                                         │
-                                                         ▼
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│ User Feedback   │◀────│ Form Quality    │◀────│ Angle           │
-│ Generation      │     │ Assessment      │     │ Normalization   │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-```
+### 3. Multi-Modal Feedback System
 
-- **Landmark Filtering**: Applies temporal smoothing to reduce jitter in detected landmarks
-- **Angle Calculation**: Uses vector mathematics to calculate angles between key body points
-- **Angle Normalization**: Adjusts for individual body proportions and camera perspective
-- **Form Quality Assessment**: Compares calculated angles to ideal ranges for the specific exercise
-- **User Feedback Generation**: Creates visual and textual feedback based on angle discrepancies
+The application uses multiple channels to provide feedback:
+- **Visual**: Canvas overlays highlighting joint angles or bounding boxes, with special styling (dimmed/dashed) to filter out non-players (referees, coaches).
+- **AI (Gemini)**: Processes aggregated pose data or tactical tracks to generate comprehensive coaching summaries.
 
-The system uses a weighted moving average for landmark smoothing:
+### 4. Local Storage for Persistence
 
-```javascript
-// Pseudocode for landmark smoothing
-function smoothLandmark(newLandmark, previousLandmarks, weight = 0.3) {
-  if (!previousLandmarks.length) return newLandmark;
-  
-  const avgLandmark = {
-    x: previousLandmarks.reduce((sum, l) => sum + l.x, 0) / previousLandmarks.length,
-    y: previousLandmarks.reduce((sum, l) => sum + l.y, 0) / previousLandmarks.length,
-    z: previousLandmarks.reduce((sum, l) => sum + l.z, 0) / previousLandmarks.length
-  };
-  
-  return {
-    x: newLandmark.x * weight + avgLandmark.x * (1 - weight),
-    y: newLandmark.y * weight + avgLandmark.y * (1 - weight),
-    z: newLandmark.z * weight + avgLandmark.z * (1 - weight)
-  };
-}
-```
-
-### 2. Exercise State Machine
-
-Each exercise implements a state machine for rep counting:
-
-```
-┌─────────────┐
-│  Waiting    │
-└──────┬──────┘
-       │
-       ▼
-┌─────────────┐         ┌─────────────┐
-│    Down     │────────▶│     Up      │
-└──────┬──────┘         └──────┬──────┘
-       │                       │
-       └───────────────────────┘
-```
-
-- **Waiting**: Initial state before exercise begins
-- **Down**: Bottom position of the exercise (e.g., arms extended in bicep curl)
-- **Up**: Top position of the exercise (e.g., arms flexed in bicep curl)
-
-Transitions between states are triggered by specific joint angle thresholds.
-
-### 3. Feedback Prioritization and Visualization
-
-#### Feedback Prioritization
-
-The application uses a priority queue for audio feedback:
-
-- High priority: Form corrections and safety issues
-- Medium priority: Rep counting and exercise state changes
-- Low priority: General encouragement and breathing cues
-
-This ensures the most important feedback is delivered first.
-
-#### Visual Feedback System
-
-The enhanced visual feedback system provides immediate, actionable feedback on form:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Visual Feedback                         │
-│                                                             │
-│  ┌─────────────┐   ┌─────────────┐   ┌─────────────────┐   │
-│  │ Angle       │   │ Color-coded │   │ Text Overlay    │   │
-│  │ Visualization│   │ Indicators  │   │ Feedback       │   │
-│  └─────────────┘   └─────────────┘   └─────────────────┘   │
-│                                                             │
-│  ┌─────────────┐   ┌─────────────┐   ┌─────────────────┐   │
-│  │ Ideal Range │   │ Correction  │   │ Progress        │   │
-│  │ Indicators  │   │ Arrows      │   │ Indicators      │   │
-│  └─────────────┘   └─────────────┘   └─────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-Components of the visual feedback system:
-
-1. **Angle Visualization**: Displays current joint angles numerically and graphically
-2. **Color-coded Indicators**: 
-   - Green: Angle within ideal range
-   - Yellow: Angle slightly outside ideal range
-   - Red: Angle significantly outside ideal range
-3. **Text Overlay Feedback**: Concise text instructions for correcting form
-4. **Ideal Range Indicators**: Visual representation of target angle ranges
-5. **Correction Arrows**: Directional indicators showing how to adjust position
-6. **Progress Indicators**: Shows improvement in form over time
-
-The system uses a threshold-based approach to determine feedback severity:
-
-```javascript
-// Pseudocode for feedback severity determination
-function determineFeedbackSeverity(currentAngle, idealRange) {
-  const [minIdeal, maxIdeal] = idealRange;
-  const minWarningThreshold = minIdeal - 10;
-  const maxWarningThreshold = maxIdeal + 10;
-  
-  if (currentAngle >= minIdeal && currentAngle <= maxIdeal) {
-    return "good"; // Green
-  } else if (currentAngle >= minWarningThreshold && currentAngle <= maxWarningThreshold) {
-    return "warning"; // Yellow
-  } else {
-    return "error"; // Red
-  }
-}
-```
-
-### 4. Progressive Enhancement
-
-The application follows a progressive enhancement approach:
-
-- Core functionality works with basic webcam and pose detection
-- Enhanced features (AI feedback, analytics) are added when available
-- Graceful fallbacks when advanced features aren't available
-
-### 5. Local Storage for Persistence
-
-- Exercise history and analytics are stored in localStorage
-- API keys are securely saved for future sessions
-- User preferences for visualization and audio are persisted
-
-## Critical Implementation Paths
-
-1. **Camera Initialization → MediaPipe Setup → Pose Detection**
-   - Critical for basic functionality
-   - Must handle permissions and errors gracefully
-
-2. **Exercise Selection → Form Analysis → Rep Counting**
-   - Core workout tracking functionality
-   - Exercise-specific analysis must be accurate
-
-3. **Pose Data → Analytics → Insights Generation**
-   - Provides value through personalized feedback
-   - Depends on sufficient historical data
-
-4. **Gemini API Integration → AI Feedback → User Presentation**
-   - Enhanced feedback capability
-   - Must handle API limitations and errors
+- Video analysis logs, metric data, and AI summaries (including dual pipeline results) are stored in `localStorage`.
+- API keys (if not provided via env variables) are securely saved for future sessions.

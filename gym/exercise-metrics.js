@@ -1,5 +1,7 @@
 // Exercise Metrics Documentation and Implementation
 // This file defines the metrics used to analyze exercise form and provide feedback
+// Utility functions (calculateAngle, smoothAngle, determineFeedbackSeverity) imported from shared
+import { calculateAngle, smoothAngle, determineFeedbackSeverity } from '../shared/pose-utils.js';
 
 /**
  * Metrics Priority Levels:
@@ -8,103 +10,11 @@
  * P2 - Beneficial for advanced form refinement
  */
 
-// Common angle calculation function
-function calculateAngle(pointA, pointB, pointC) {
-  const radians = Math.atan2(pointC.y - pointB.y, pointC.x - pointB.x) - 
-                  Math.atan2(pointA.y - pointB.y, pointA.x - pointB.x);
-  let angle = Math.abs(radians * 180.0 / Math.PI);
-  
-  if (angle > 180.0) {
-    angle = 360 - angle;
-  }
-  
-  return angle;
-}
+// calculateAngle — imported from ../shared/pose-utils.js
 
-// Enhanced smoothing function for angle measurements with larger window and outlier rejection
-function smoothAngle(newAngle, previousAngles, weight = 0.2) {
-  if (!previousAngles || previousAngles.length === 0) return newAngle;
-  
-  // Sort angles to identify outliers
-  const sortedAngles = [...previousAngles].sort((a, b) => a - b);
-  
-  // Remove potential outliers (top and bottom 10% if we have enough samples)
-  let filteredAngles = previousAngles;
-  if (previousAngles.length >= 10) {
-    const cutoff = Math.floor(previousAngles.length * 0.1);
-    filteredAngles = sortedAngles.slice(cutoff, sortedAngles.length - cutoff);
-  }
-  
-  // Calculate average of filtered angles
-  const avgAngle = filteredAngles.reduce((sum, angle) => sum + angle, 0) / filteredAngles.length;
-  
-  // Apply exponential smoothing with lower weight for new values to reduce jitter
-  return newAngle * weight + avgAngle * (1 - weight);
-}
+// smoothAngle — imported from ../shared/pose-utils.js
 
-// Enhanced feedback severity determination with hysteresis to prevent flickering
-function determineFeedbackSeverity(currentValue, idealRange, warningThreshold = 10, previousSeverity = null) {
-  const [minIdeal, maxIdeal] = idealRange;
-  const minWarningThreshold = minIdeal - warningThreshold;
-  const maxWarningThreshold = maxIdeal + warningThreshold;
-  
-  // Add hysteresis buffer to prevent rapid switching between states
-  const hysteresisBuffer = 3;
-  
-  let newSeverity;
-  if (currentValue >= minIdeal && currentValue <= maxIdeal) {
-    newSeverity = "good"; // Green
-  } else if (currentValue >= minWarningThreshold && currentValue <= maxWarningThreshold) {
-    newSeverity = "warning"; // Yellow
-  } else {
-    newSeverity = "error"; // Red
-  }
-  
-  // Apply hysteresis if we have a previous severity
-  if (previousSeverity) {
-    // If we're at the boundary between good and warning
-    if (previousSeverity === "good" && newSeverity === "warning") {
-      // Stay in "good" if we're just barely into warning territory
-      if (currentValue >= minIdeal - hysteresisBuffer && currentValue < minIdeal) {
-        return "good";
-      }
-      if (currentValue > maxIdeal && currentValue <= maxIdeal + hysteresisBuffer) {
-        return "good";
-      }
-    }
-    // If we're at the boundary between warning and error
-    else if (previousSeverity === "warning" && newSeverity === "error") {
-      // Stay in "warning" if we're just barely into error territory
-      if (currentValue >= minWarningThreshold - hysteresisBuffer && currentValue < minWarningThreshold) {
-        return "warning";
-      }
-      if (currentValue > maxWarningThreshold && currentValue <= maxWarningThreshold + hysteresisBuffer) {
-        return "warning";
-      }
-    }
-    // Similar logic for transitions from worse to better states
-    else if (previousSeverity === "warning" && newSeverity === "good") {
-      // Require a bit more improvement before switching to "good"
-      if (currentValue >= minIdeal && currentValue <= minIdeal + hysteresisBuffer) {
-        return "warning";
-      }
-      if (currentValue >= maxIdeal - hysteresisBuffer && currentValue <= maxIdeal) {
-        return "warning";
-      }
-    }
-    else if (previousSeverity === "error" && newSeverity === "warning") {
-      // Require a bit more improvement before switching to "warning"
-      if (currentValue >= minWarningThreshold && currentValue <= minWarningThreshold + hysteresisBuffer) {
-        return "error";
-      }
-      if (currentValue >= maxWarningThreshold - hysteresisBuffer && currentValue <= maxWarningThreshold) {
-        return "error";
-      }
-    }
-  }
-  
-  return newSeverity;
-}
+// determineFeedbackSeverity — imported from ../shared/pose-utils.js
 
 // Base metrics applicable to all exercises
 const baseMetrics = {

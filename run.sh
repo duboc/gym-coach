@@ -1,25 +1,29 @@
 #!/bin/bash
 
-echo "Starting Fitness Tracker application..."
+echo "Starting Football Video Analysis in local development mode..."
 
-# Check if Python is installed
-if command -v python3 &>/dev/null; then
-    echo "Starting server with Python 3..."
-    python3 -m http.server
-elif command -v python &>/dev/null; then
-    echo "Starting server with Python..."
-    # Check Python version
-    PYTHON_VERSION=$(python -c 'import sys; print(sys.version_info[0])')
-    if [ "$PYTHON_VERSION" -eq 3 ]; then
-        python -m http.server
+# Check if .env exists
+if [ ! -f .env ]; then
+    echo "Warning: .env file not found."
+    if [ -f .env.example ]; then
+        cp .env.example .env
+        echo "Created .env from .env.example — please edit with your GCP project details."
     else
-        python -m SimpleHTTPServer
+        echo "Please create a .env file with your configuration."
     fi
-elif command -v npx &>/dev/null; then
-    echo "Starting server with npx..."
-    npx http-server
-else
-    echo "Error: Could not find Python or Node.js to start a server."
-    echo "Please install Python 3 or Node.js, or manually start a server."
-    exit 1
-fi 
+fi
+
+# Load environment variables from .env
+if [ -f .env ]; then
+    export $(cat .env | grep -v '^#' | xargs)
+fi
+
+# Check if node_modules exists
+if [ ! -d node_modules ]; then
+    echo "Installing dependencies..."
+    npm install
+fi
+
+# Start the Express server (serves static files + API endpoints)
+echo "Starting server on http://localhost:${PORT:-8080}"
+node server.js

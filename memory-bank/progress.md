@@ -1,180 +1,80 @@
-# Progress Tracker: Fitness Tracker with MediaPipe
+# Progress Tracker: Football Video Analysis
 
 ## Current Status
 
-**Project Phase**: Initial Development
-**Last Updated**: April 16, 2025
+**Project Phase**: Football Module Refinement
+**Last Updated**: March 2026
 
 ## Completed Features
 
-### Core Functionality
-- [x] Camera integration with MediaPipe Holistic
-- [x] Real-time pose detection and landmark visualization
-- [x] Exercise library with 8 dumbbell exercises
-- [x] Exercise selection interface
-- [x] Rep counting for bicep curls and shoulder press
-- [x] Basic form analysis for supported exercises
-- [x] Visual feedback on exercise form
+### Core Architecture
+- [x] Abstract core computer vision and AI logic into `/shared/` directory
+- [x] Pose detection utilities and mathematical normalizations
+- [x] Multi-modal feedback wrappers (Audio Coach, Visual Overlays)
+- [x] Gemini API integration wrapper
 
-### Enhanced Features
-- [x] Audio coaching with speech synthesis
-- [x] AI-powered feedback via Gemini API
-- [x] Form visualization with correction overlays
-- [x] Exercise analytics and progress tracking
-- [x] Local storage for exercise history
-- [x] Responsive design for different screen sizes
-- [x] Error handling for camera access
+### Football Video Analysis
+- [x] Default entry point configured (`/video-analysis/`)
+- [x] Autonomous video triage (auto-detects Match vs Technique mode)
+- [x] Dual Pipeline Processing (Runs both Match and Technique logic in parallel)
+- [x] On-demand per-player technique analysis with slide-out UI panel
+- [x] Offline/pre-recorded MediaPipe frame processing and timeline aggregation
+- [x] Dashboard for saving and reviewing past analyses in LocalStorage
 
-### User Interface
-- [x] Exercise library panel
-- [x] Exercise details panel
-- [x] Camera controls
-- [x] Rep counter and progress bar
-- [x] Form feedback display
-- [x] Visualization controls
-- [x] Audio feedback controls
+### YouTube Integration & Backend
+- [x] Node.js Express server for API proxying and static serving
+- [x] Python ML Pipeline (YOLOv8, ByteTrack, SigLIP) with non-player filtering
+- [x] YouTube Data API integration for searching videos
+- [x] Video download/proxy endpoint to bypass Canvas CORS restrictions
+
+### DevOps & Infrastructure
+- [x] Dockerfile and Cloud Run deployment scripts
 
 ## In Progress Features
 
-### Core Functionality
-- [x] Enhanced Dumbbell Bicep Curls exercise with improved metrics and feedback
-- [ ] Enhancing remaining exercises with the same improvements
-- [ ] Enhancing joint angle calculation with improved accuracy and stability
-- [ ] Implementing real-time angle visualization with ideal range indicators
-- [ ] Developing immediate visual feedback system for form corrections
-- [ ] Refining form analysis for all exercises
-- [ ] Improving rep counting accuracy for complex exercises
-
-### Enhanced Features
-- [ ] Optimizing performance on lower-end devices
-- [ ] Improving AI feedback quality and relevance
-- [ ] Enhancing analytics visualizations
-
-### User Interface
-- [ ] Adding user settings for feedback preferences
-- [ ] Implementing color-coded feedback indicators for form issues
-- [ ] Adding on-screen text feedback for specific angle corrections
-- [ ] Improving mobile responsiveness
-- [ ] Enhancing accessibility features
+- [ ] Refining Football technique metrics (`technique-metrics.js`) for higher accuracy on fast movements
+- [ ] Stabilizing YouTube video processing edge cases (CORS, video formats, download timeouts)
+- [ ] Tuning Gemini prompts for advanced sports biomechanics (knee-over-ball, torso lean)
 
 ## Planned Features
 
-### Short-term (Next 2 Weeks)
-- [ ] Angle comparison visualization (current vs. ideal angles)
-- [ ] User settings panel for customization
-- [ ] Improved visualization of movement guides
-- [ ] Enhanced error handling for edge cases
-- [ ] Performance optimizations
+### Short-term
+- [ ] Fix missing detailed contexts in the client provider for specific techniques (Outside Foot Pass, Heading, Volley Kick, Throw-In).
+- [ ] Update `createVideoAnalysisPrompt` and `createPlayerTechniquePrompt` to include rigorous biomechanics criteria (angles, phases, body positions).
+- [ ] Expand Football technique library (Heading, Goalkeeping, Passing)
+- [ ] Improve automated phase detection (Approach, Plant, Contact, Follow-through)
+- [ ] Add loading states and progress bars for long video processing
 
-### Medium-term (Next 1-2 Months)
-- [ ] Workout routines (sequences of exercises)
-- [ ] Detailed progress visualization and charts
-- [ ] Export/import functionality for workout data
-- [ ] Offline mode with cached models
+### Medium-term
+- [ ] Implement side-by-side video comparison (User vs. Pro)
+- [ ] User accounts / persistent database storage (beyond LocalStorage)
+- [ ] Detailed historical progress charts
+- [ ] Shareable URLs for AI-generated coaching summaries
 
-### Long-term (3+ Months)
-- [ ] Expanded exercise library with bodyweight exercises
-- [ ] Custom exercise creation
-- [ ] Social sharing features
-- [ ] Guided workout programs
-- [ ] Integration with fitness wearables
+### Long-term
+- [ ] Object tracking integration (tracking the football itself alongside the player)
+- [ ] Cloud-based processing options for lower-end devices
 
 ## Known Issues
 
-### High Priority
-1. ~~**Speech Synthesis Errors**: Occasional errors in audio feedback~~ (Fixed)
-2. ~~**Reference Errors**: determineFeedbackSeverity function not defined~~ (Fixed)
-3. ~~**Camera Crashes**: MediaPipe processing errors causing camera to crash~~ (Fixed)
-4. **Pose Detection Stability**: MediaPipe sometimes loses tracking during rapid movements
-5. **Rep Counting Accuracy**: Some exercises have false positives/negatives in rep counting
-6. **Performance Issues**: High CPU usage on lower-end devices
-
-### Medium Priority
-1. **Audio Feedback Timing**: Occasional delays in audio feedback
-2. **Gemini API Reliability**: API calls sometimes fail or timeout
-3. **Mobile Usability**: Interface elements too small on mobile devices
-
-### Low Priority
-1. **Browser Compatibility**: Minor visual differences between browsers
-2. **Form Analysis Edge Cases**: Unusual body proportions can affect analysis accuracy
-3. **LocalStorage Limitations**: Limited storage capacity for exercise history
-
-## Technical Debt
-
-1. **Code Organization**: Some analysis functions in script.js should be moved to separate modules
-2. **Error Handling**: Need more comprehensive error handling for API failures
-3. **Performance Optimization**: Render loop could be optimized for better performance
-4. **Documentation**: Missing JSDoc comments for some functions
-5. **Testing**: No automated tests implemented yet
+1. **Motion Blur/Frame Dropping**: Fast movements in football kicks occasionally cause MediaPipe to blur or drop landmarks in standard 30fps video.
+2. **Backend Video Download**: YouTube import occasionally fails for specific copyright-protected or age-restricted videos.
+3. **High CPU Usage**: Running MediaPipe on high-resolution video files causes UI stuttering on lower-end hardware during the extraction phase.
+4. **Phase Detection**: Hard to accurately pinpoint exact ball contact without dedicated ball-tracking AI.
 
 ## Milestones
 
-### Milestone 1: Core Functionality ✅
-- Basic pose detection
-- Exercise library
-- Rep counting
-- Form analysis
+### Milestone 1: Core Architecture ✅
+- Abstract core CV logic, setup MediaPipe, establish Gemini API connection.
 
-### Milestone 2: Enhanced Feedback ✅
-- Visual feedback
-- Audio coaching
-- AI-powered feedback
+### Milestone 2: Video Analysis Foundation ✅
+- Video upload, offline frame processing, dashboard UI.
 
-### Milestone 3: Analytics and Progress Tracking ✅
-- Exercise history
-- Performance metrics
-- Progress visualization
+### Milestone 3: YouTube Integration ✅
+- Node.js backend, search API, proxy download to bypass CORS.
 
-### Milestone 4: User Experience Improvements 🔄
-- Settings and customization
-- Responsive design
-- Accessibility features
+### Milestone 4: Football Domain Expansion 🔄 (Current)
+- Refining technique metrics, phase detection, UI polish.
 
-### Milestone 5: Advanced Features ⏳
-- Workout routines
-- Custom exercises
-- Social features
-
-## Recent Progress
-
-### Week of April 16-22, 2025
-- Enhanced Dumbbell Bicep Curls exercise with bilateral symmetry detection
-- Added shoulder stability monitoring to detect shoulder elevation
-- Implemented partial rep detection and counting (0.5 reps)
-- Added side-specific feedback for more targeted form corrections
-- Fixed speech synthesis errors with improved error handling
-- Fixed reference error for determineFeedbackSeverity function
-- Improved error handling in MediaPipe processing to prevent camera crashes
-- Updated documentation with enhanced feedback system information
-
-### Week of April 9-15, 2025
-- Implemented advanced analytics module
-- Added audio coaching with configurable voice settings
-- Enhanced visualization with form correction overlays
-- Improved error handling for camera access
-
-### Week of April 2-8, 2025
-- Integrated Gemini API for AI-powered feedback
-- Implemented local storage for exercise history
-- Added responsive design for different screen sizes
-- Fixed bugs in rep counting logic
-
-### Week of March 26-April 1, 2025
-- Completed initial exercise library
-- Implemented basic form analysis
-- Added rep counting for supported exercises
-- Created user interface for exercise selection
-
-## Next Actions
-
-1. Enhance remaining exercises with the same improvements applied to Bicep Curls:
-   - Add bilateral symmetry detection
-   - Implement shoulder stability monitoring
-   - Add partial rep detection
-   - Provide side-specific feedback
-2. Implement enhanced angle calculation algorithms with smoothing and normalization
-3. Develop real-time angle visualization with ideal range indicators
-4. Create color-coded feedback system for immediate form correction
-5. Add on-screen text feedback for specific angle issues
-6. Refine form analysis algorithms for shoulder press and lateral raises
-7. Implement user settings panel for feedback preferences
+### Milestone 5: Advanced Analytics ⏳
+- Side-by-side comparison, ball tracking, cloud storage.
