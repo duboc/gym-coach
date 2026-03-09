@@ -169,23 +169,19 @@
 
 ## Improvement Priority Matrix
 
-| Improvement | Impact | Effort | Priority |
-|------------|--------|--------|----------|
-| Ball interpolation through occlusions | High — fixes fragmented possession tracking | Low (~10 lines) | **P0** |
-| Ball possession visual indicator | Medium — immediate visual feedback | Low (~20 lines in overlay) | **P0** |
-| Camera movement compensation | High — required for accurate speed/distance | Medium (~80 lines + integration) | **P1** |
-| Speed and distance estimation | High — fundamental match stats | Low (once camera comp. exists) | **P1** |
+| Improvement | Impact | Effort | Status |
+|------------|--------|--------|--------|
+| Ball interpolation through occlusions | High — fixes fragmented possession tracking | Low (~10 lines) | **DONE** |
+| Ball possession visual indicator | Medium — immediate visual feedback | Low (~20 lines in overlay) | **DONE** |
+| Camera movement compensation | High — required for accurate speed/distance | Medium (~80 lines + integration) | **DONE** |
+| Speed and distance estimation | High — fundamental match stats | Low (once camera comp. exists) | **DONE** |
 | Perspective view transform | High — enables real-world measurements | Medium-High (auto-detection is hard) | **P2** |
 | Custom-trained YOLO model | Medium — better referee/GK detection | High (dataset + training) | **P3** |
 
-### Recommended Implementation Order
+### Remaining
 
-1. **Ball interpolation** — Quick win, fixes possession gaps
-2. **Ball possession visual indicator** — Quick win, draws triangle/circle on possessing player
-3. **Camera movement compensation** — Unlocks speed/distance features
-4. **Speed and distance estimation** — Natural follow-on from camera comp.
-5. **Perspective transform** — Start with manual 4-point calibration, add auto-detection later
-6. **Custom YOLO** — Only if detection quality proves insufficient
+1. **Perspective transform** — Start with manual 4-point calibration, add auto-detection later
+2. **Custom YOLO** — Only if detection quality proves insufficient
 
 ---
 

@@ -86,41 +86,33 @@ They found generic COCO "sports ball" class insufficient for small, fast-moving 
 | Ball detection | YOLOv5 finetuned on soccer footage | YOLOv8n generic (COCO class 32) |
 | Tracking | Norfair | ByteTrack (ultralytics) |
 | Team assignment | HSV color filtering + inertia | SigLIP embeddings + HSV histograms + UMAP/KMeans |
-| Classification stabilization | Temporal mode over last N frames | Track-level majority vote (no temporal smoothing) |
-| Possession method | Time-based with inertia (K consecutive frames) | Frame-by-frame nearest player (no inertia) |
+| Classification stabilization | Temporal mode over last N frames | Sliding window mode (last 10 frames) |
+| Possession method | Time-based with inertia (K consecutive frames) | Time-based with inertia (5 consecutive frames) |
 | Possession display | Live scoreboard overlay | Percentage bar + possession flow chart |
-| Ball interpolation | Not mentioned | Not implemented |
-| Pass detection | Yes (ball changes player, same team) | Not implemented |
+| Ball interpolation | Not mentioned | Linear interpolation (numpy.interp) |
+| Pass detection | Yes (ball changes player, same team) | Yes (pass + turnover detection from possession timeline) |
 | Ball trail | Yes (camera-compensated) | Yes (not camera-compensated) |
-| Camera compensation | Norfair motion estimation | Not implemented |
+| Camera compensation | Norfair motion estimation | Lucas-Kanade optical flow on frame edges |
 | AI analysis | None | Gemini (tactical, per-player, biomechanics) |
 | Pose estimation | None | MediaPipe 33-point |
-| Long video support | Manual trimming | Not implemented (to be added) |
-| Camera cut detection | Not handled (acknowledged limitation) | Not implemented |
+| Long video support | Manual trimming | Chunked processing (5-min segments, up to 2h) |
+| Camera cut detection | Not handled (acknowledged limitation) | HSV histogram correlation (threshold 0.6) |
 
 ---
 
-## Improvements to Adopt
+## Improvements — Status
 
-### P0 — Possession Inertia
-**Problem:** Our possession flickers. Ball rolling past a defender = momentary false possession change.
+### DONE — Possession Inertia
+Implemented: 5 consecutive frames required before switching possession. Uses bottom-center (feet) for distance. Max 0.12 normalized distance threshold.
 
-**Solution:** Require K consecutive frames (e.g., K=10 at 2fps = 5 seconds) where the other team is closest before switching possession. Reset counter on interruption.
+### DONE — Pass Detection
+Implemented: `detect_passes()` classifies ball transfers as passes (same team) or turnovers (different team). Minimum 2 frames of possession to filter noise. Shown in events chart and pass stats panel.
 
-### P0 — Pass Detection
-**Problem:** We detect ball contacts but don't classify them as passes.
+### DONE — Team Classification Inertia
+Implemented: `apply_team_classification_inertia()` uses sliding window mode (last 10 frames) per track. Applied after initial UMAP/KMeans assignment.
 
-**Solution:** When ball goes from Player A (Team X) → Player B (Team X), that's a completed pass. When Player A (Team X) → Player B (Team Y), that's a turnover. We have all the data — just need the logic.
-
-### P1 — Team Classification Inertia
-**Problem:** Our track-level majority vote assigns team once based on sampled crops. If a track gets a bad sample, it's wrong for the entire track.
-
-**Solution:** Per-frame team classification with temporal smoothing (mode of last N). This also handles the edge case where a track merge reassigns an ID — the inertia system would self-correct.
-
-### P1 — Camera Cut Detection
-**Problem:** Both Tryolabs and our system break on camera angle changes (close-ups, replays). For long videos (full matches), this is critical.
-
-**Solution:** Detect camera cuts by measuring frame-to-frame histogram difference. When a cut is detected: pause possession clock, don't track across the cut, skip close-up segments. This is essential for long video support.
+### DONE — Camera Cut Detection
+Implemented: `detect_camera_cuts()` uses HSV histogram correlation (threshold 0.6). Cut frames marked in detections, shown with red overlay indicator.
 
 ### P2 — Custom Ball Detection Model
 **Problem:** Generic COCO "sports ball" class misses small, fast-moving soccer balls at broadcast distances.
