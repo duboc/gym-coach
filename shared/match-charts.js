@@ -34,6 +34,7 @@ export default class MatchCharts {
       { icon: 'fas fa-futbol', value: processingMeta.ballDetections ?? '—', label: 'Ball Detected' },
       { icon: 'fas fa-bezier-curve', value: processingMeta.ballInterpolated ?? '—', label: 'Ball Interpolated' },
       { icon: 'fas fa-project-diagram', value: processingMeta.tracksMerged ?? '—', label: 'Tracks Merged' },
+      { icon: 'fas fa-cut', value: processingMeta.cameraCutsDetected ?? '—', label: 'Camera Cuts' },
     ];
 
     container.innerHTML = stats.map((s) => `
@@ -164,6 +165,9 @@ export default class MatchCharts {
         framesVisible: s.framesVisible || 0,
         possessionFrames: s.possessionFrames || 0,
         firstSeen: s.firstSeen || 0,
+        totalDistanceM: s.totalDistanceM || 0,
+        avgSpeedKmh: s.avgSpeedKmh || 0,
+        topSpeedKmh: s.topSpeedKmh || 0,
       }))
       .sort((a, b) => b.framesVisible - a.framesVisible);
 
@@ -188,8 +192,8 @@ export default class MatchCharts {
           <text x="${PAD.left - 8}" y="${y + barH / 2 + 4}" text-anchor="end" fill="#b8c5d6" font-size="12" font-weight="600">#${p.id} (${teamLabel})</text>
           <rect x="${PAD.left}" y="${y}" width="${barW}" height="${barH}" rx="4" fill="${teamColorLight}"/>
           <rect x="${PAD.left}" y="${y}" width="${possW}" height="${barH}" rx="4" fill="${teamColor}"/>
-          <text x="${PAD.left + barW + 6}" y="${y + barH / 2 + 4}" fill="#b8c5d6" font-size="11">${p.framesVisible}f</text>
-          <title>Player #${p.id} — ${p.framesVisible} frames visible, ${p.possessionFrames} possession frames</title>
+          <text x="${PAD.left + barW + 6}" y="${y + barH / 2 + 4}" fill="#b8c5d6" font-size="11">${p.totalDistanceM > 0 ? `${p.totalDistanceM}m · ${p.topSpeedKmh}km/h` : `${p.framesVisible}f`}</text>
+          <title>Player #${p.id} — ${p.framesVisible} frames, ${p.possessionFrames} poss, ${p.totalDistanceM}m covered, top ${p.topSpeedKmh}km/h</title>
         </g>
       `;
     });

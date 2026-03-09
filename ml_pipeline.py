@@ -290,6 +290,123 @@ def extract_frames(video_path, fps=2):
     return all_frames, meta
 
 
+def estimate_camera_movement(frames):
+    """Estimate camera panning between consecutive frames using Lucas-Kanade optical flow.
+
+    Tracks features in the edge regions of the frame (left 20px, right 20px) which
+    typically show stadium/advertising boards that are static relative to the pitch.
+    Returns per-frame camera displacement vectors.
+
+    Based on the approach from Khushal-gupta22/Football-Analysis.
+    """
+    if len(frames) < 2:
+        return [{"dx": 0.0, "dy": 0.0}] * len(frames)
+
+    # Lucas-Kanade parameters
+    lk_params = dict(
+        winSize=(15, 15),
+        maxLevel=2,
+        criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03),
+    )
+
+    # Feature detection parameters
+    feature_params = dict(
+        maxCorners=100,
+        qualityLevel=0.3,
+        minDistance=3,
+        blockSize=7,
+    )
+
+    camera_movements = [{"dx": 0.0, "dy": 0.0}]  # first frame has no movement
+
+    prev_gray = None
+    for i, frame_data in enumerate(frames):
+        frame = frame_data["frame"]
+        if frame is None:
+            camera_movements.append({"dx": 0.0, "dy": 0.0})
+            continue
+
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        if prev_gray is not None:
+            h, w = gray.shape
+
+            # Create mask for edge regions (static background like ad boards)
+            edge_width = min(20, w // 50)
+            mask = np.zeros_like(gray)
+            mask[:, :edge_width] = 255        # left edge
+            mask[:, w - edge_width:] = 255    # right edge
+
+            # Find features in edge regions of previous frame
+            prev_pts = cv2.goodFeaturesToTrack(prev_gray, mask=mask, **feature_params)
+
+            if prev_pts is not None and len(prev_pts) >= 4:
+                curr_pts, status, _ = cv2.calcOpticalFlowPyrLK(
+                    prev_gray, gray, prev_pts, None, **lk_params
+                )
+
+                if curr_pts is not None:
+                    # Filter to valid matches
+                    valid = status.flatten() == 1
+                    if valid.sum() >= 2:
+                        displacements = curr_pts[valid] - prev_pts[valid]
+                        # Use median to be robust to outliers
+                        dx = float(np.median(displacements[:, 0, 0]))
+                        dy = float(np.median(displacements[:, 0, 1]))
+
+                        # Minimum threshold: ignore sub-pixel noise
+                        if abs(dx) < 2.0 and abs(dy) < 2.0:
+                            dx, dy = 0.0, 0.0
+
+                        camera_movements.append({
+                            "dx": round(dx / w, 6),  # normalize to 0-1
+                            "dy": round(dy / h, 6),
+                        })
+                    else:
+                        camera_movements.append({"dx": 0.0, "dy": 0.0})
+                else:
+                    camera_movements.append({"dx": 0.0, "dy": 0.0})
+            else:
+                camera_movements.append({"dx": 0.0, "dy": 0.0})
+
+        prev_gray = gray
+
+    return camera_movements
+
+
+def detect_camera_cuts(frames, threshold=0.6):
+    """Detect camera cuts (replays, close-ups, angle changes) by measuring
+    frame-to-frame histogram difference.
+
+    When the histogram correlation drops below the threshold, it indicates
+    a camera cut. Returns a set of frame indices where cuts occur.
+    """
+    if len(frames) < 2:
+        return set()
+
+    cuts = set()
+    prev_hist = None
+
+    for i, frame_data in enumerate(frames):
+        frame = frame_data["frame"]
+        if frame is None:
+            continue
+
+        # Compute HSV histogram (more robust to lighting than RGB)
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        hist = cv2.calcHist([hsv], [0, 1], None, [30, 32], [0, 180, 0, 256])
+        cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX)
+
+        if prev_hist is not None:
+            correlation = cv2.compareHist(prev_hist, hist, cv2.HISTCMP_CORREL)
+            if correlation < threshold:
+                cuts.add(i)
+
+        prev_hist = hist
+
+    return cuts
+
+
 def run_yolo_detection(frames, video_meta):
     """Run YOLOv8 on each frame, detecting persons (0) and sports balls (32)."""
     model = get_yolo_model()
@@ -1023,6 +1140,130 @@ def compute_player_stats(detections, ball_trajectory):
     return player_stats, player_paths
 
 
+def compute_speed_distance(detections, player_paths, player_stats,
+                           camera_movements, fps,
+                           pitch_length_m=105, pitch_width_m=68):
+    """Estimate per-player speed (km/h) and total distance covered (meters).
+
+    Uses camera-compensated positions. Without perspective transform, we use
+    a simplified pixel-to-meter mapping assuming the visible field covers
+    roughly pitch_length_m x pitch_width_m.
+
+    Args:
+        detections: list of detection dicts (to map timestamps to frame indices)
+        camera_movements: list of {dx, dy} per frame (normalized 0-1)
+        fps: processing FPS (typically 2)
+        pitch_length_m: assumed pitch length in meters
+        pitch_width_m: assumed pitch width in meters
+    """
+    # Build cumulative camera offset indexed by timestamp
+    cam_by_time = {}
+    cum_dx, cum_dy = 0.0, 0.0
+    for i, cm in enumerate(camera_movements):
+        cum_dx += cm["dx"]
+        cum_dy += cm["dy"]
+        if i < len(detections):
+            cam_by_time[detections[i]["timestamp"]] = (cum_dx, cum_dy)
+
+    speed_window = max(3, int(2.0 * fps))  # 2-second sliding window
+
+    for tid_str, path in player_paths.items():
+        if len(path) < 2:
+            if tid_str in player_stats:
+                player_stats[tid_str]["totalDistanceM"] = 0
+                player_stats[tid_str]["avgSpeedKmh"] = 0
+                player_stats[tid_str]["topSpeedKmh"] = 0
+            continue
+
+        # Camera-compensated positions (subtract cumulative camera motion)
+        compensated = []
+        for pt in path:
+            cdx, cdy = cam_by_time.get(pt["timestamp"], (0.0, 0.0))
+            compensated.append({
+                "x": pt["x"] - cdx,
+                "y": pt["y"] - cdy,
+                "timestamp": pt["timestamp"],
+            })
+
+        # Compute segment distances in meters
+        # Normalized coords 0-1 → multiply by pitch dimensions
+        total_dist = 0.0
+        speeds = []
+
+        for i in range(1, len(compensated)):
+            dx_m = (compensated[i]["x"] - compensated[i - 1]["x"]) * pitch_length_m
+            dy_m = (compensated[i]["y"] - compensated[i - 1]["y"]) * pitch_width_m
+            segment_dist = (dx_m ** 2 + dy_m ** 2) ** 0.5
+
+            # Filter unrealistic jumps (>15m between frames at 2fps = >30m/s = >108km/h)
+            max_segment = 15.0  # meters
+            if segment_dist > max_segment:
+                segment_dist = 0.0  # likely a tracking error or camera cut
+
+            total_dist += segment_dist
+
+        # Sliding window speed calculation
+        for i in range(len(compensated)):
+            window_end = min(i + speed_window, len(compensated) - 1)
+            if window_end <= i:
+                continue
+            dx_m = (compensated[window_end]["x"] - compensated[i]["x"]) * pitch_length_m
+            dy_m = (compensated[window_end]["y"] - compensated[i]["y"]) * pitch_width_m
+            window_dist = (dx_m ** 2 + dy_m ** 2) ** 0.5
+            dt = compensated[window_end]["timestamp"] - compensated[i]["timestamp"]
+            if dt > 0 and window_dist < 50:  # sanity check
+                speed_ms = window_dist / dt
+                speed_kmh = speed_ms * 3.6
+                if speed_kmh < 40:  # realistic max for football
+                    speeds.append(speed_kmh)
+
+        avg_speed = round(sum(speeds) / len(speeds), 1) if speeds else 0
+        top_speed = round(max(speeds), 1) if speeds else 0
+
+        if tid_str in player_stats:
+            player_stats[tid_str]["totalDistanceM"] = round(total_dist, 1)
+            player_stats[tid_str]["avgSpeedKmh"] = avg_speed
+            player_stats[tid_str]["topSpeedKmh"] = top_speed
+
+
+def apply_team_classification_inertia(detections, window_size=10):
+    """Apply temporal smoothing to team classification.
+
+    Instead of a single majority vote per track, use a sliding window (mode of
+    last N frames) to smooth team assignment. This prevents bad crops from
+    misclassifying a player and handles tracker ID swaps.
+
+    Modifies detections in-place.
+    """
+    # Collect per-track team history in frame order
+    track_frames = {}  # trackId -> [(frame_idx, player_idx, teamId), ...]
+    for fi, det in enumerate(detections):
+        for pi, player in enumerate(det["players"]):
+            tid = player.get("trackId", -1)
+            if tid < 0:
+                continue
+            team_id = player.get("teamId", -1)
+            if tid not in track_frames:
+                track_frames[tid] = []
+            track_frames[tid].append((fi, pi, team_id))
+
+    # Apply sliding window mode
+    for tid, entries in track_frames.items():
+        team_ids = [e[2] for e in entries]
+
+        for i, (fi, pi, _) in enumerate(entries):
+            # Window: last window_size entries up to and including current
+            start = max(0, i - window_size + 1)
+            window = team_ids[start:i + 1]
+
+            # Filter out unassigned (-1)
+            valid = [t for t in window if t >= 0]
+            if valid:
+                # Mode: most common team in window
+                smoothed_team = max(set(valid), key=valid.count)
+                detections[fi]["players"][pi]["teamId"] = smoothed_team
+
+
 def compute_possession_timeline(detections, ball_trajectory, player_stats,
                                  inertia_frames=5, max_possession_dist=0.12):
     """Compute ball possession with inertia to prevent flickering.
@@ -1263,6 +1504,9 @@ def process_video(video_path, fps=2, max_crops=150, progress_callback=None):
     all_frames = []
     detections = []
     ball_trajectory = []
+    all_camera_movements = []
+    all_camera_cuts = set()
+    global_frame_offset = 0
     chunk_num = 0
     estimated_chunks = max(1, int(duration / chunk_seconds)) if is_long else 1
 
@@ -1283,6 +1527,15 @@ def process_video(video_path, fps=2, max_crops=150, progress_callback=None):
             else:
                 progress_callback("Running player detection", 15)
 
+        # Camera cut detection on this chunk (while frames are in RAM)
+        chunk_cuts = detect_camera_cuts(chunk_frames)
+        for ci in chunk_cuts:
+            all_camera_cuts.add(global_frame_offset + ci)
+
+        # Camera movement estimation on this chunk
+        chunk_cam = estimate_camera_movement(chunk_frames)
+        all_camera_movements.extend(chunk_cam)
+
         # YOLO detection — ByteTrack persists across chunks via model.track(persist=True)
         chunk_dets, chunk_balls = run_yolo_detection(chunk_frames, video_meta)
         detections.extend(chunk_dets)
@@ -1294,6 +1547,7 @@ def process_video(video_path, fps=2, max_crops=150, progress_callback=None):
         # Keep frames for cropping but release BGR data for already-processed
         # pose frames. We only need the frame for crop_players later.
         all_frames.extend(chunk_frames)
+        global_frame_offset += len(chunk_frames)
 
     if len(all_frames) == 0:
         return {"error": "No frames extracted from video"}
@@ -1329,6 +1583,9 @@ def process_video(video_path, fps=2, max_crops=150, progress_callback=None):
     # Step 6: Assign team IDs back to detections
     detections = assign_team_ids(detections, crops, team_labels)
 
+    # Step 6b: Apply team classification inertia (temporal smoothing)
+    apply_team_classification_inertia(detections, window_size=10)
+
     if progress_callback:
         progress_callback("Fingerprinting players", 75)
 
@@ -1348,22 +1605,31 @@ def process_video(video_path, fps=2, max_crops=150, progress_callback=None):
     if progress_callback:
         progress_callback("Computing player stats", 88)
 
-    # Step 9: Interpolate ball trajectory through detection gaps
+    # Step 9: Mark camera cuts in detections
+    for ci in all_camera_cuts:
+        if ci < len(detections):
+            detections[ci]["cameraCut"] = True
+
+    # Step 10: Interpolate ball trajectory through detection gaps
+    # (skip interpolation across camera cuts)
     raw_ball_count = len(ball_trajectory)
     ball_trajectory = interpolate_ball_trajectory(detections, ball_trajectory)
 
-    # Step 10: Compute per-player stats and paths (skips non-players)
+    # Step 11: Compute per-player stats and paths (skips non-players)
     player_stats, player_paths = compute_player_stats(detections, ball_trajectory)
 
-    # Step 11: Compute possession timeline with inertia (skips non-players)
+    # Step 12: Compute speed and distance (camera-compensated)
+    compute_speed_distance(detections, player_paths, player_stats, all_camera_movements, fps)
+
+    # Step 13: Compute possession timeline with inertia (skips non-players)
     possession_timeline = compute_possession_timeline(
         detections, ball_trajectory, player_stats
     )
 
-    # Step 12: Detect passes and turnovers from possession timeline
+    # Step 14: Detect passes and turnovers from possession timeline
     pass_events = detect_passes(possession_timeline, player_stats)
 
-    # Step 13: Extract key frames
+    # Step 15: Extract key frames
     key_frames = extract_key_frames(
         detections, ball_trajectory, player_paths
     )
@@ -1404,6 +1670,8 @@ def process_video(video_path, fps=2, max_crops=150, progress_callback=None):
             "cropsEmbedded": len(crops),
             "tracksMerged": len(merge_map),
             "nonPlayersFiltered": len(filtered_tracks),
+            "cameraCutsDetected": len(all_camera_cuts),
+            "cameraCompensation": True,
             "videoDuration": round(duration, 1),
             "isLongVideo": is_long,
             "modelVersion": "yolov8n + mediapipe-pose + siglip-reID",

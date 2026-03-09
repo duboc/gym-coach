@@ -924,6 +924,20 @@ class VideoOverlay {
           this.ctx.stroke();
         }
 
+        // Draw speed/distance at player's feet
+        if (trackId != null && trackId >= 0 && this.mlResults?.playerStats) {
+          const pStats = this.mlResults.playerStats[String(trackId)];
+          if (pStats?.topSpeedKmh > 0) {
+            const speedLabel = `${pStats.avgSpeedKmh} km/h`;
+            this.ctx.font = '9px Arial';
+            this.ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            const sw = this.ctx.measureText(speedLabel).width;
+            this.ctx.fillRect(px, py + ph + 2, sw + 6, 14);
+            this.ctx.fillStyle = '#30c39e';
+            this.ctx.fillText(speedLabel, px + 3, py + ph + 13);
+          }
+        }
+
         this.ctx.globalAlpha = 1.0;
       }
     }
@@ -952,6 +966,17 @@ class VideoOverlay {
       this.ctx.font = 'bold 10px Arial';
       this.ctx.fillStyle = this.ballColor;
       this.ctx.fillText('BALL', cx + r + 4, cy + 3);
+    }
+
+    // Camera cut indicator
+    if (mlFrame.cameraCut) {
+      this.ctx.fillStyle = 'rgba(255, 60, 90, 0.15)';
+      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      this.ctx.font = 'bold 14px Arial';
+      this.ctx.fillStyle = '#ff3a5e';
+      this.ctx.textAlign = 'center';
+      this.ctx.fillText('CAMERA CUT', this.canvas.width / 2, 40);
+      this.ctx.textAlign = 'start';
     }
 
     this.ctx.restore();
