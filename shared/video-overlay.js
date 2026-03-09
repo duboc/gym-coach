@@ -302,6 +302,11 @@ class VideoOverlay {
       return dets[Math.min(afterIdx, dets.length - 1)];
     }
 
+    // Don't interpolate across camera cuts — return nearest frame
+    if (after.cameraCut) {
+      return (time - (before.timestamp || 0)) < ((after.timestamp || 0) - time) ? before : after;
+    }
+
     const t0 = before.timestamp || 0;
     const t1 = after.timestamp || 0;
     if (t1 <= t0) return before;
@@ -315,6 +320,16 @@ class VideoOverlay {
       a[2] + (b[2] - a[2]) * t,
       a[3] + (b[3] - a[3]) * t,
     ];
+
+    // Get the frame before `before` for velocity estimation
+    const prevIdx = beforeIdx > 0 ? beforeIdx - 1 : null;
+    const prev = prevIdx !== null ? dets[prevIdx] : null;
+    const prevPlayersMap = {};
+    if (prev && prev.players && !before.cameraCut) {
+      for (const p of prev.players) {
+        if (p.trackId != null && p.trackId >= 0) prevPlayersMap[p.trackId] = p;
+      }
+    }
 
     // Interpolate players by trackId
     const interpolatedPlayers = [];
@@ -330,13 +345,43 @@ class VideoOverlay {
       for (const p of before.players) {
         const tid = p.trackId;
         if (tid != null && tid >= 0 && afterPlayersMap[tid]) {
-          // Present in both frames — lerp
+          // Present in both frames — use cubic Hermite interpolation if velocity available
           seenTrackIds.add(tid);
           const afterP = afterPlayersMap[tid];
-          const lerped = {
-            ...p,
-            bbox: lerpBbox(p.bbox, afterP.bbox),
-          };
+          const prevP = prevPlayersMap[tid];
+          let interpolatedBbox;
+
+          if (prevP) {
+            // Estimate velocity at `before` from prev→before movement
+            // Use Hermite spline for smoother curves through direction changes
+            const vel = [
+              (p.bbox[0] - prevP.bbox[0]),
+              (p.bbox[1] - prevP.bbox[1]),
+              (p.bbox[2] - prevP.bbox[2]),
+              (p.bbox[3] - prevP.bbox[3]),
+            ];
+            // Hermite basis functions
+            const h00 = 2 * t * t * t - 3 * t * t + 1;
+            const h10 = t * t * t - 2 * t * t + t;
+            const h01 = -2 * t * t * t + 3 * t * t;
+            // h11 = t³ - t² (for end velocity, approximated as mirror)
+            const afterVel = afterPlayersMap[tid] ? [
+              (afterP.bbox[0] - p.bbox[0]),
+              (afterP.bbox[1] - p.bbox[1]),
+              (afterP.bbox[2] - p.bbox[2]),
+              (afterP.bbox[3] - p.bbox[3]),
+            ] : vel;
+            const h11 = t * t * t - t * t;
+
+            interpolatedBbox = p.bbox.map((v, i) =>
+              h00 * v + h10 * vel[i] + h01 * afterP.bbox[i] + h11 * afterVel[i]
+            );
+          } else {
+            interpolatedBbox = lerpBbox(p.bbox, afterP.bbox);
+          }
+
+          const lerped = { ...p, bbox: interpolatedBbox };
+
           // Lerp keypoints if both frames have them
           if (p.keypoints && afterP.keypoints && p.keypoints.length === afterP.keypoints.length) {
             lerped.keypoints = p.keypoints.map((kp, i) => [
@@ -378,6 +423,7 @@ class VideoOverlay {
       timestamp: time,
       players: interpolatedPlayers,
       ball: interpolatedBall,
+      cameraCut: after.cameraCut || false,
       referees: before.referees || [],
     };
   }

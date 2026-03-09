@@ -11,11 +11,11 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 
 // Config
-const MAX_VIDEO_SIZE_MB = parseInt(process.env.MAX_VIDEO_SIZE_MB || '100');
+const MAX_VIDEO_SIZE_MB = parseInt(process.env.MAX_VIDEO_SIZE_MB || '2000');
 const MAX_VIDEO_DURATION = parseInt(process.env.MAX_VIDEO_DURATION_SECONDS || '7200');
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 const GEMINI_TEMPERATURE = parseFloat(process.env.GEMINI_TEMPERATURE || '0.15');
-const ML_ANALYSIS_FPS = parseFloat(process.env.ML_ANALYSIS_FPS || '2');
+const ML_ANALYSIS_FPS = parseFloat(process.env.ML_ANALYSIS_FPS || '4');
 const ML_ENABLED = process.env.ML_ENABLED !== 'false';
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || '';
 const GCS_BUCKET_NAME = process.env.GCS_BUCKET_NAME || '';
@@ -100,8 +100,12 @@ app.get('/api/config', (req, res) => {
 
 // --- Video Upload ---
 const multer = require('multer');
+const os = require('os');
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({
+    destination: os.tmpdir(),
+    filename: (req, file, cb) => cb(null, `upload-${uuidv4()}${path.extname(file.originalname)}`),
+  }),
   limits: { fileSize: MAX_VIDEO_SIZE_MB * 1024 * 1024 },
 });
 
@@ -111,19 +115,27 @@ app.post('/api/video/upload', upload.single('video'), async (req, res) => {
       return res.status(400).json({ error: 'No video file provided' });
     }
 
+    const fs = require('fs');
     const { bucket } = getGCS();
     const fileName = `videos/${uuidv4()}-${req.file.originalname}`;
     const file = bucket.file(fileName);
 
-    await file.save(req.file.buffer, {
+    // Stream from disk to GCS (avoids loading entire file into memory)
+    await file.save(fs.createReadStream(req.file.path), {
       contentType: req.file.mimetype,
-      resumable: false,
+      resumable: req.file.size > 5 * 1024 * 1024,
     });
+
+    // Clean up temp file
+    fs.unlinkSync(req.file.path);
 
     const gcsUri = `gs://${GCS_BUCKET_NAME}/${fileName}`;
     res.json({ fileName, gcsUri, size: req.file.size });
   } catch (error) {
     console.error('Upload error:', error);
+    if (req.file?.path) {
+      try { require('fs').unlinkSync(req.file.path); } catch {}
+    }
     res.status(500).json({ error: 'Upload failed', details: error.message });
   }
 });
@@ -382,8 +394,8 @@ app.post('/api/video/ml-analyze', async (req, res) => {
     console.log('Running ML pipeline on', fileName);
     const { execSync } = require('child_process');
     const result = execSync(
-      `python3 ml_pipeline.py "${tmpPath}" --fps ${ML_ANALYSIS_FPS} --max-crops 150`,
-      { timeout: 1800000, maxBuffer: 50 * 1024 * 1024 }
+      `python3 ml_pipeline.py "${tmpPath}" --fps ${ML_ANALYSIS_FPS} --max-crops 300`,
+      { timeout: 1800000, maxBuffer: 200 * 1024 * 1024 }
     ).toString();
 
     fs.unlinkSync(tmpPath);
