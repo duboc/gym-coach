@@ -435,7 +435,7 @@ class VideoOverlay {
         break;
       case 'detection':
         this._drawFormationLines(mlFrame);
-        this._drawMlDetections(mlFrame);
+        this._drawMlDetections(mlFrame, currentTime);
         this._drawPlayerSkeletons(mlFrame);
         this._drawPlayerTrails(currentTime);
         this._drawBallTrail(currentTime);
@@ -451,7 +451,7 @@ class VideoOverlay {
           this._drawFormIndicators(pose);
         }
         this._drawFormationLines(mlFrame);
-        this._drawMlDetections(mlFrame);
+        this._drawMlDetections(mlFrame, currentTime);
         this._drawPlayerSkeletons(mlFrame);
         this._drawPlayerTrails(currentTime);
         this._drawBallTrail(currentTime);
@@ -826,12 +826,24 @@ class VideoOverlay {
   // ML DETECTION OVERLAYS
   // ========================================
 
-  _drawMlDetections(mlFrame) {
+  _drawMlDetections(mlFrame, currentTime) {
     if (!mlFrame) return;
 
     this.ctx.save();
 
     const hasSelection = this.selectedPlayerId != null;
+
+    // Find which player has possession at this timestamp
+    let possessingPlayerId = null;
+    if (this.mlResults?.possessionTimeline) {
+      for (const entry of this.mlResults.possessionTimeline) {
+        if (entry.timestamp <= currentTime) {
+          possessingPlayerId = entry.playerId;
+        } else {
+          break;
+        }
+      }
+    }
 
     // Draw player bounding boxes
     if (mlFrame.players) {
@@ -894,6 +906,23 @@ class VideoOverlay {
         this.ctx.fillRect(px, py - 18, textW + 8, 18);
         this.ctx.fillStyle = '#ffffff';
         this.ctx.fillText(label, px + 4, py - 5);
+
+        // Draw possession indicator (inverted triangle above player)
+        if (trackId != null && trackId === possessingPlayerId) {
+          const triCx = px + pw / 2;
+          const triY = py - 28;
+          const triSize = 8;
+          this.ctx.beginPath();
+          this.ctx.moveTo(triCx - triSize, triY - triSize);
+          this.ctx.lineTo(triCx + triSize, triY - triSize);
+          this.ctx.lineTo(triCx, triY + 2);
+          this.ctx.closePath();
+          this.ctx.fillStyle = this.ballColor;
+          this.ctx.fill();
+          this.ctx.strokeStyle = '#000000';
+          this.ctx.lineWidth = 1;
+          this.ctx.stroke();
+        }
 
         this.ctx.globalAlpha = 1.0;
       }

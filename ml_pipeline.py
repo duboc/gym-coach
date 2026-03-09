@@ -361,6 +361,42 @@ def run_yolo_detection(frames, video_meta):
     return detections, ball_trajectory
 
 
+def interpolate_ball_trajectory(detections, ball_trajectory):
+    """Fill gaps in ball trajectory using linear interpolation.
+    Ball is typically detected in only 40-60% of frames. This fills the gaps
+    so possession tracking and ball trail rendering are continuous.
+    """
+    if len(ball_trajectory) < 2:
+        return ball_trajectory
+
+    # Build lookup of existing ball positions
+    ball_by_time = {b["timestamp"]: (b["x"], b["y"]) for b in ball_trajectory}
+
+    # Get all frame timestamps
+    all_timestamps = sorted(det["timestamp"] for det in detections)
+    if not all_timestamps:
+        return ball_trajectory
+
+    # Build arrays of known positions for interpolation
+    known_times = sorted(ball_by_time.keys())
+    known_x = [ball_by_time[t][0] for t in known_times]
+    known_y = [ball_by_time[t][1] for t in known_times]
+
+    # Interpolate for all frame timestamps within the range of known positions
+    min_t, max_t = known_times[0], known_times[-1]
+    interpolated = []
+    for t in all_timestamps:
+        if t in ball_by_time:
+            interpolated.append({"timestamp": t, "x": ball_by_time[t][0], "y": ball_by_time[t][1]})
+        elif min_t < t < max_t:
+            # Linear interpolation
+            x = round(float(np.interp(t, known_times, known_x)), 4)
+            y = round(float(np.interp(t, known_times, known_y)), 4)
+            interpolated.append({"timestamp": t, "x": x, "y": y, "interpolated": True})
+
+    return interpolated
+
+
 def extract_color_histogram(crop_bgr):
     """Extract a color histogram fingerprint from a player crop.
     Focuses on the torso region (middle 60% height) to capture jersey color,
@@ -987,9 +1023,17 @@ def compute_player_stats(detections, ball_trajectory):
     return player_stats, player_paths
 
 
-def compute_possession_timeline(detections, ball_trajectory, player_stats):
-    """Compute per-frame ball possession: nearest player to ball.
-    Skips non-players.
+def compute_possession_timeline(detections, ball_trajectory, player_stats,
+                                 inertia_frames=5, max_possession_dist=0.12):
+    """Compute ball possession with inertia to prevent flickering.
+
+    Uses a state machine: possession only changes when a different team's player
+    is nearest for `inertia_frames` consecutive frames. This prevents false
+    possession changes during rebounds and when the ball rolls past opponents.
+
+    Args:
+        inertia_frames: consecutive frames needed to switch possession (default 5 at 2fps = 2.5s)
+        max_possession_dist: max normalized distance to count as "in possession" (default 0.12)
     """
     ball_by_time = {}
     for b in ball_trajectory:
@@ -997,6 +1041,13 @@ def compute_possession_timeline(detections, ball_trajectory, player_stats):
 
     timeline = []
     possession_count = {}  # trackId -> frames with possession
+
+    # Inertia state
+    current_team = -1
+    current_player = -1
+    candidate_team = -1
+    candidate_player = -1
+    candidate_streak = 0
 
     for det in detections:
         timestamp = det["timestamp"]
@@ -1015,23 +1066,61 @@ def compute_possession_timeline(detections, ball_trajectory, player_stats):
             if not player.get("isPlayer", True):
                 continue
             bbox = player["bbox"]
+            # Use bottom-center of bbox (feet) for more accurate possession
             cx = (bbox[0] + bbox[2]) / 2
-            cy = (bbox[1] + bbox[3]) / 2
+            cy = bbox[3]  # bottom of bbox
             dist = ((cx - ball_pos[0]) ** 2 + (cy - ball_pos[1]) ** 2) ** 0.5
 
             if dist < nearest_dist:
                 nearest_dist = dist
                 nearest_tid = tid
 
-        if nearest_tid is not None:
-            team_id = player_stats.get(str(nearest_tid), {}).get("teamId", -1)
-            timeline.append({
-                "timestamp": timestamp,
-                "teamId": team_id,
-                "playerId": nearest_tid,
-                "distance": round(nearest_dist, 4),
-            })
-            possession_count[nearest_tid] = possession_count.get(nearest_tid, 0) + 1
+        if nearest_tid is None or nearest_dist > max_possession_dist:
+            # No player close enough — maintain current possession
+            candidate_streak = 0
+            if current_team >= 0:
+                timeline.append({
+                    "timestamp": timestamp,
+                    "teamId": current_team,
+                    "playerId": current_player,
+                    "distance": round(nearest_dist, 4) if nearest_tid else None,
+                })
+                possession_count[current_player] = possession_count.get(current_player, 0) + 1
+            continue
+
+        nearest_team = player_stats.get(str(nearest_tid), {}).get("teamId", -1)
+
+        # Apply inertia: only switch possession after K consecutive frames
+        if current_team < 0:
+            # First possession assignment — no inertia needed
+            current_team = nearest_team
+            current_player = nearest_tid
+        elif nearest_team != current_team and nearest_team >= 0:
+            # Different team is nearest — start/continue candidate streak
+            if nearest_team == candidate_team:
+                candidate_streak += 1
+            else:
+                candidate_team = nearest_team
+                candidate_player = nearest_tid
+                candidate_streak = 1
+
+            if candidate_streak >= inertia_frames:
+                # Enough consecutive frames — switch possession
+                current_team = candidate_team
+                current_player = candidate_player
+                candidate_streak = 0
+        else:
+            # Same team still has possession — update player, reset candidate
+            current_player = nearest_tid
+            candidate_streak = 0
+
+        timeline.append({
+            "timestamp": timestamp,
+            "teamId": current_team,
+            "playerId": current_player,
+            "distance": round(nearest_dist, 4),
+        })
+        possession_count[current_player] = possession_count.get(current_player, 0) + 1
 
     # Update player_stats with possession frames
     for tid, count in possession_count.items():
@@ -1039,6 +1128,51 @@ def compute_possession_timeline(detections, ball_trajectory, player_stats):
             player_stats[str(tid)]["possessionFrames"] = count
 
     return timeline
+
+
+def detect_passes(possession_timeline, player_stats, min_possession_frames=2):
+    """Detect passes and turnovers from the possession timeline.
+
+    A pass = ball goes from Player A to Player B on the same team.
+    A turnover = ball goes from Player A (Team X) to Player B (Team Y).
+
+    Args:
+        min_possession_frames: minimum frames a player must hold possession
+            before a transfer counts (filters noise)
+    """
+    if len(possession_timeline) < 2:
+        return []
+
+    events = []
+    # Track runs of same player possession
+    run_start = 0
+    prev_player = possession_timeline[0].get("playerId")
+
+    for i in range(1, len(possession_timeline)):
+        curr_player = possession_timeline[i].get("playerId")
+
+        if curr_player != prev_player:
+            run_length = i - run_start
+
+            if run_length >= min_possession_frames and prev_player is not None and curr_player is not None:
+                prev_team = player_stats.get(str(prev_player), {}).get("teamId", -1)
+                curr_team = player_stats.get(str(curr_player), {}).get("teamId", -1)
+
+                if prev_team >= 0 and curr_team >= 0:
+                    is_pass = prev_team == curr_team
+                    events.append({
+                        "timestamp": possession_timeline[i]["timestamp"],
+                        "type": "pass" if is_pass else "turnover",
+                        "fromPlayer": prev_player,
+                        "toPlayer": curr_player,
+                        "fromTeam": prev_team,
+                        "toTeam": curr_team,
+                    })
+
+            run_start = i
+            prev_player = curr_player
+
+    return events
 
 
 def extract_key_frames(detections, ball_trajectory, player_paths, ball_contact_threshold=0.08):
@@ -1214,15 +1348,22 @@ def process_video(video_path, fps=2, max_crops=150, progress_callback=None):
     if progress_callback:
         progress_callback("Computing player stats", 88)
 
-    # Step 9: Compute per-player stats and paths (skips non-players)
+    # Step 9: Interpolate ball trajectory through detection gaps
+    raw_ball_count = len(ball_trajectory)
+    ball_trajectory = interpolate_ball_trajectory(detections, ball_trajectory)
+
+    # Step 10: Compute per-player stats and paths (skips non-players)
     player_stats, player_paths = compute_player_stats(detections, ball_trajectory)
 
-    # Step 10: Compute possession timeline (skips non-players)
+    # Step 11: Compute possession timeline with inertia (skips non-players)
     possession_timeline = compute_possession_timeline(
         detections, ball_trajectory, player_stats
     )
 
-    # Step 11: Extract key frames
+    # Step 12: Detect passes and turnovers from possession timeline
+    pass_events = detect_passes(possession_timeline, player_stats)
+
+    # Step 13: Extract key frames
     key_frames = extract_key_frames(
         detections, ball_trajectory, player_paths
     )
@@ -1249,6 +1390,7 @@ def process_video(video_path, fps=2, max_crops=150, progress_callback=None):
         "playerPaths": player_paths,
         "playerStats": player_stats,
         "possessionTimeline": possession_timeline,
+        "passEvents": pass_events,
         "keyFrames": key_frames,
         "mergedTracks": {str(k): v for k, v in merge_map.items()},
         "filteredTracks": [int(t) for t in filtered_tracks],
@@ -1257,7 +1399,8 @@ def process_video(video_path, fps=2, max_crops=150, progress_callback=None):
             "framesProcessed": len(all_frames),
             "playersDetected": sum(len(d["players"]) for d in detections),
             "uniquePlayersTracked": len(unique_track_ids),
-            "ballDetections": len(ball_trajectory),
+            "ballDetections": raw_ball_count,
+            "ballInterpolated": len(ball_trajectory) - raw_ball_count,
             "cropsEmbedded": len(crops),
             "tracksMerged": len(merge_map),
             "nonPlayersFiltered": len(filtered_tracks),

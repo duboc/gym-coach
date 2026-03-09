@@ -10,6 +10,8 @@ const EVENT_COLORS = {
   ball_contact: '#ffd700',
   direction_change: '#a29bfe',
   gemini: '#fd79a8',
+  pass: '#30c39e',
+  turnover: '#ff3a5e',
 };
 
 export default class MatchCharts {
@@ -29,7 +31,8 @@ export default class MatchCharts {
     const stats = [
       { icon: 'fas fa-images', value: processingMeta.framesProcessed ?? processingMeta.totalFrames ?? '—', label: 'Frames' },
       { icon: 'fas fa-users', value: processingMeta.uniquePlayersTracked ?? processingMeta.totalPlayers ?? '—', label: 'Unique Players' },
-      { icon: 'fas fa-futbol', value: processingMeta.ballDetections ?? '—', label: 'Ball Frames' },
+      { icon: 'fas fa-futbol', value: processingMeta.ballDetections ?? '—', label: 'Ball Detected' },
+      { icon: 'fas fa-bezier-curve', value: processingMeta.ballInterpolated ?? '—', label: 'Ball Interpolated' },
       { icon: 'fas fa-project-diagram', value: processingMeta.tracksMerged ?? '—', label: 'Tracks Merged' },
     ];
 
@@ -326,7 +329,7 @@ export default class MatchCharts {
   }
 
   // ─── Events Distribution (histogram) ──────────────────────────────
-  renderEventsDistribution(container, { keyFrames, matchEvents, duration }) {
+  renderEventsDistribution(container, { keyFrames, matchEvents, passEvents, duration }) {
     if (!container) return;
     const dur = duration || this.duration;
 
@@ -352,6 +355,16 @@ export default class MatchCharts {
       }
     }
 
+    // passEvents from ML pipeline
+    if (passEvents && passEvents.length > 0) {
+      for (const evt of passEvents) {
+        allEvents.push({
+          time: evt.timestamp ?? 0,
+          type: evt.type || 'pass',
+        });
+      }
+    }
+
     if (allEvents.length === 0) {
       container.innerHTML = '<div class="match-chart-empty">No event data</div>';
       return;
@@ -364,6 +377,8 @@ export default class MatchCharts {
       ball_contact: 0,
       direction_change: 0,
       gemini: 0,
+      pass: 0,
+      turnover: 0,
       total: 0,
     }));
 
@@ -432,6 +447,10 @@ export default class MatchCharts {
           <text x="${PAD.left + 109}" y="13" fill="#b8c5d6" font-size="10">dir change</text>
           <rect x="${PAD.left + 180}" y="4" width="10" height="10" rx="2" fill="${EVENT_COLORS.gemini}"/>
           <text x="${PAD.left + 194}" y="13" fill="#b8c5d6" font-size="10">AI events</text>
+          <rect x="${PAD.left + 255}" y="4" width="10" height="10" rx="2" fill="${EVENT_COLORS.pass}"/>
+          <text x="${PAD.left + 269}" y="13" fill="#b8c5d6" font-size="10">pass</text>
+          <rect x="${PAD.left + 305}" y="4" width="10" height="10" rx="2" fill="${EVENT_COLORS.turnover}"/>
+          <text x="${PAD.left + 319}" y="13" fill="#b8c5d6" font-size="10">turnover</text>
         </svg>
       </div>
     `;
@@ -443,6 +462,61 @@ export default class MatchCharts {
         this.seekVideo(t);
       });
     });
+  }
+
+  // ─── Pass / Turnover Stats ──────────────────────────────────────
+  renderPassStats(container, { passEvents, playerStats }) {
+    if (!container) return;
+    if (!passEvents || passEvents.length === 0) {
+      container.innerHTML = '';
+      return;
+    }
+
+    let team0Passes = 0, team1Passes = 0, turnovers = 0;
+    for (const evt of passEvents) {
+      if (evt.type === 'pass') {
+        if (evt.fromTeam === 0) team0Passes++;
+        else team1Passes++;
+      } else if (evt.type === 'turnover') {
+        turnovers++;
+      }
+    }
+
+    const totalPasses = team0Passes + team1Passes;
+    const t0Pct = totalPasses > 0 ? Math.round((team0Passes / totalPasses) * 100) : 0;
+    const t1Pct = totalPasses > 0 ? Math.round((team1Passes / totalPasses) * 100) : 0;
+
+    container.innerHTML = `
+      <div class="match-chart-container">
+        <h4><i class="fas fa-exchange-alt"></i> Passing Stats</h4>
+        <div class="pass-stats-grid">
+          <div class="match-stat-card">
+            <span class="match-stat-value" style="color: ${EVENT_COLORS.pass}">${totalPasses}</span>
+            <span class="match-stat-label">Total Passes</span>
+          </div>
+          <div class="match-stat-card">
+            <span class="match-stat-value" style="color: ${EVENT_COLORS.turnover}">${turnovers}</span>
+            <span class="match-stat-label">Turnovers</span>
+          </div>
+          <div class="match-stat-card">
+            <span class="match-stat-value">${team0Passes}</span>
+            <span class="match-stat-label">Team A Passes</span>
+          </div>
+          <div class="match-stat-card">
+            <span class="match-stat-value">${team1Passes}</span>
+            <span class="match-stat-label">Team B Passes</span>
+          </div>
+        </div>
+        <div class="pass-bar">
+          <div class="pass-bar-fill" style="width: ${t0Pct}%; background: rgba(48, 196, 158, 0.7);">
+            ${t0Pct > 10 ? `${t0Pct}%` : ''}
+          </div>
+          <div class="pass-bar-fill" style="width: ${t1Pct}%; background: rgba(108, 92, 231, 0.7);">
+            ${t1Pct > 10 ? `${t1Pct}%` : ''}
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   // ─── Update Playhead ──────────────────────────────────────────────

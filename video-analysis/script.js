@@ -1158,7 +1158,16 @@ function renderMatchCharts() {
     {
       keyFrames: ml.keyFrames || null,
       matchEvents: events?.timeline || null,
+      passEvents: ml.passEvents || null,
       duration: resultVideo.duration || 0,
+    }
+  );
+
+  matchCharts.renderPassStats(
+    document.getElementById('chart-pass-stats'),
+    {
+      passEvents: ml.passEvents || null,
+      playerStats: ml.playerStats || null,
     }
   );
 
