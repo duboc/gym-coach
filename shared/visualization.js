@@ -47,11 +47,7 @@ class FormVisualizer {
 
     this.idealPose = { ...this.lastPoseData };
 
-    if (this.exerciseType === "Dumbbell Bicep Curls") {
-      // Adjust for ideal bicep curl form
-    } else if (this.exerciseType === "Dumbbell Shoulder Press") {
-      // Adjust for ideal shoulder press form
-    }
+    // Exercise-specific ideal pose adjustments applied by each app
   }
 
   // Draw form correction overlays on the canvas
@@ -74,10 +70,9 @@ class FormVisualizer {
       }
     });
 
-    if (this.formQuality === "good") {
-      if (this.exerciseType === "Dumbbell Bicep Curls") {
-        this.highlightJoint(pose[14], this.colors.good, "Good elbow position");
-        this.highlightJoint(pose[13], this.colors.good, "Good elbow position");
+    if (this.formQuality === "good" && this.goodFormJoints) {
+      for (const [idx, label] of this.goodFormJoints) {
+        this.highlightJoint(pose[idx], this.colors.good, label);
       }
     }
   }
@@ -95,12 +90,10 @@ class FormVisualizer {
     this.ctx.strokeStyle = this.colors.guide;
     this.ctx.lineWidth = 3;
 
-    if (this.exerciseType === "Dumbbell Bicep Curls") {
-      this.drawGuideLine(pose[12], pose[14], ideal[12], ideal[14]);
-      this.drawGuideLine(pose[14], pose[16], ideal[14], ideal[16]);
-    } else if (this.exerciseType === "Dumbbell Shoulder Press") {
-      this.drawGuideLine(pose[12], pose[14], ideal[12], ideal[14]);
-      this.drawGuideLine(pose[14], pose[16], ideal[14], ideal[16]);
+    if (this.guideJointPairs) {
+      for (const [startIdx, endIdx] of this.guideJointPairs) {
+        this.drawGuideLine(pose[startIdx], pose[endIdx], ideal[startIdx], ideal[endIdx]);
+      }
     }
 
     this.ctx.restore();
@@ -204,12 +197,10 @@ class FormVisualizer {
     this.ctx.save();
     this.ctx.globalAlpha = 0.3;
 
-    if (this.exerciseType === "Dumbbell Bicep Curls") {
-      this.drawHeatmapRegion(0.3, 0.3, 0.1, 0.2, 'rgba(255, 0, 0, 0.7)');
-      this.drawHeatmapRegion(0.7, 0.3, 0.1, 0.2, 'rgba(255, 0, 0, 0.7)');
-    } else if (this.exerciseType === "Dumbbell Shoulder Press") {
-      this.drawHeatmapRegion(0.3, 0.2, 0.1, 0.1, 'rgba(255, 0, 0, 0.7)');
-      this.drawHeatmapRegion(0.7, 0.2, 0.1, 0.1, 'rgba(255, 0, 0, 0.7)');
+    if (this.heatmapRegions) {
+      for (const region of this.heatmapRegions) {
+        this.drawHeatmapRegion(region.x, region.y, region.w, region.h, region.color || 'rgba(255, 0, 0, 0.7)');
+      }
     }
 
     this.ctx.restore();

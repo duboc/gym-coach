@@ -18,7 +18,7 @@ import AdvancedAnalytics from '../shared/advanced-analytics.js';
 import documentationManager from './documentation.js';
 import { exerciseMetrics, determineFeedbackSeverity, smoothAngle, smoothAngleFast, angularVelocity, peakAngularVelocity, calculateAngle } from './technique-metrics.js';
 
-// Alias for compatibility with gym-inherited code
+// Alias for compatibility with shared module interface
 const exercisesModule = techniquesModule;
 
 // Global variables
@@ -81,7 +81,7 @@ function initApp() {
   // Initialize visualization
   visualizer = new FormVisualizer(canvasElement, canvasCtx);
   
-  // Initialize audio coach and register gym-specific phrases
+  // Initialize audio coach and register technique-specific phrases
   audioCoach = new AudioCoach({
     enabled: true,
     feedbackFrequency: 'normal'

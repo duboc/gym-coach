@@ -4,10 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Sports Coach — a multi-app monorepo for browser-based fitness and sports coaching. Uses MediaPipe for real-time pose detection and Vertex AI (Gemini) for AI-powered form feedback. Supports both real-time camera analysis and video upload analysis with overlay visualizations.
+Football Video Analysis — browser-based football coaching app. Uses MediaPipe for real-time pose detection and Vertex AI (Gemini) for AI-powered form feedback. Supports both real-time camera analysis and video upload analysis with overlay visualizations.
 
 **Apps:**
-- **Gym Coach** (`gym/`) — Dumbbell exercise tracking (8 exercises)
 - **Football Coach** (`football/`) — Football technique analysis (8 techniques)
 - **Video Analysis** (`video-analysis/`) — Upload videos or search YouTube for AI analysis with overlay playback
 
@@ -41,24 +40,20 @@ There is no build process, linter, or test suite. JavaScript files are ES6 modul
 
 ### Shared Module Injection Pattern
 
-Shared modules never hardcode exercise/technique names. Each app injects domain-specific behavior at startup:
+Shared modules never hardcode technique names. The football app injects domain-specific behavior at startup:
 
 - `gemini-api.js`: `setExerciseContextProvider(fn)` — app provides prompt context (form criteria, breathing, common errors). `setFrameSnapshotProvider(fn)` — captures canvas for multimodal AI.
-- `audio-coach.js`: `registerExercisePhrases(name, phrases)` — app registers exercise-specific voice feedback. Base provides general encouragement/breathing phrases. Cooldowns: form 10s, rep 3s, encouragement 15s.
+- `audio-coach.js`: `registerExercisePhrases(name, phrases)` — app registers technique-specific voice feedback. Base provides general encouragement/breathing phrases. Cooldowns: form 10s, rep 3s, encouragement 15s.
 - `visualization.js`: Receives `exerciseMetricsData` via `update()` parameter, calls `metricImplementations.measure(pose)` dynamically.
-- `pose-utils.js`: Pure utility — `calculateAngle()`, `smoothAngle()` (outlier rejection + exponential smoothing, needs 10+ samples), `determineFeedbackSeverity()` (hysteresis to prevent flickering).
+- `pose-utils.js`: Pure utility — `calculateAngle()`, `smoothAngle()` (outlier rejection + exponential smoothing, needs 10+ samples), `smoothAngleFast()` (adaptive for fast movements), `determineFeedbackSeverity()` (hysteresis to prevent flickering).
 
-### Exercise/Technique State Machines
+### Technique State Machines
 
-Each exercise defines a state machine for rep counting. The patterns differ by sport:
-- **Gym**: Vertical movements — `waiting → down → up` (e.g., bicep curls track elbow angle)
-- **Football**: Rotational/asymmetric — technique-specific states (e.g., `waiting → backswing → follow_through` for kicks)
+Each technique defines a state machine for rep counting. Football uses rotational/asymmetric patterns — technique-specific states (e.g., `waiting → backswing → follow_through` for kicks).
 
-Don't copy state logic between sports — the biomechanics are fundamentally different.
+### Technique Metrics Pattern
 
-### Exercise Metrics Pattern
-
-Both `gym/exercise-metrics.js` and `football/technique-metrics.js` export per-exercise objects with:
+`football/technique-metrics.js` exports per-technique objects with:
 ```javascript
 {
   primaryView: "Side" | "Front",
@@ -94,7 +89,11 @@ Endpoints:
 - `GET /api/video/stream/*` — Proxy video from GCS with range request support (seeking)
 - `GET /api/video/list` — List all videos in GCS bucket
 - `POST /api/video/analyze` — Analyze video with Vertex AI (GCS URI + landmarks)
+- `POST /api/video/match-analyze` — Multi-prompt match analysis (tactical + players + events + possession)
 - `POST /api/video/ml-analyze` — Run Python ML pipeline (YOLOv8 + SigLIP + UMAP)
+- `POST /api/video/analyze-player` — On-demand single player analysis
+- `POST /api/video/focus-stream` — SSE streaming player analysis
+- `POST /api/video/triage` — Quick YOLOv8 player count for mode selection
 - `POST /api/realtime/feedback` — Real-time AI feedback (exercise data + optional frame snapshot)
 - `POST /api/youtube/search` — Search YouTube (requires `YOUTUBE_API_KEY`)
 - `POST /api/youtube/import` — Download via yt-dlp → GCS
@@ -113,7 +112,7 @@ Endpoints:
 - `GOOGLE_CLOUD_LOCATION` — Region (default: `global`)
 - `GCS_BUCKET_NAME` — GCS bucket for video storage
 - `PORT` — Server port (default: `8080`)
-- `GEMINI_MODEL` — Model name (default: `gemini-3.1-flash-lite-preview`)
+- `GEMINI_MODEL` — Model name (default: `gemini-2.0-flash`)
 - `GEMINI_TEMPERATURE` — Temperature (default: `0.15`)
 - `MAX_VIDEO_SIZE_MB` — Max upload size (default: `100`)
 - `MAX_VIDEO_DURATION_SECONDS` — Max YouTube video duration (default: `300`)
