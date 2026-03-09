@@ -76,7 +76,7 @@ gcloud run deploy $SERVICE_NAME \
     --allow-unauthenticated \
     --memory 4Gi \
     --cpu 2 \
-    --timeout 300 \
+    --timeout 1800 \
     --set-env-vars "GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=global,GCS_BUCKET_NAME=${BUCKET_NAME},NODE_ENV=production,GEMINI_MODEL=gemini-3.1-flash-lite-preview"
 
 # Check deployment

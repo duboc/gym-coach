@@ -103,8 +103,8 @@ Endpoints:
 
 ## Deployment
 
-- **Docker:** Node 18-slim + Nginx + Python 3 + yt-dlp. Pre-downloads ML models (YOLOv8n, SigLIP) in Docker layer. Static files in `public/`. Nginx proxies `/api/*` to Express, 100MB upload limit, 300s timeout.
-- **Cloud Run:** Region `us-central1`, unauthenticated access, 4Gi memory, 2 CPU, 300s timeout. Service account needs `roles/aiplatform.user` + GCS `objectAdmin` + `roles/datastore.user`.
+- **Docker:** Node 18-slim + Nginx + Python 3 + yt-dlp. Pre-downloads ML models (YOLOv8n, SigLIP) in Docker layer. Static files in `public/`. Nginx proxies `/api/*` to Express, 100MB upload limit, 1800s timeout.
+- **Cloud Run:** Region `us-central1`, unauthenticated access, 4Gi memory, 2 CPU, 1800s timeout. Service account needs `roles/aiplatform.user` + GCS `objectAdmin` + `roles/datastore.user`.
 
 ## Environment Variables (.env)
 
@@ -115,7 +115,7 @@ Endpoints:
 - `GEMINI_MODEL` — Model name (default: `gemini-2.0-flash`)
 - `GEMINI_TEMPERATURE` — Temperature (default: `0.15`)
 - `MAX_VIDEO_SIZE_MB` — Max upload size (default: `100`)
-- `MAX_VIDEO_DURATION_SECONDS` — Max YouTube video duration (default: `300`)
+- `MAX_VIDEO_DURATION_SECONDS` — Max YouTube video duration (default: `7200`)
 - `YOUTUBE_API_KEY` — YouTube Data API v3 key (optional, enables YouTube search & import)
 - `ML_ANALYSIS_FPS` — Frames per second for ML pipeline (default: `2`)
 - `ML_ENABLED` — Enable ML analysis features

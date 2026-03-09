@@ -220,19 +220,36 @@ def triage_video(video_path, sample_frames=5):
     }
 
 
-def extract_frames(video_path, fps=2):
-    """Extract frames from video at the specified FPS."""
+def get_video_meta(video_path):
+    """Get video metadata without loading frames."""
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        raise RuntimeError(f"Cannot open video: {video_path}")
+    meta = {
+        "fps": cap.get(cv2.CAP_PROP_FPS) or 30,
+        "totalFrames": int(cap.get(cv2.CAP_PROP_FRAME_COUNT)),
+        "width": int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+        "height": int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+    }
+    meta["duration"] = meta["totalFrames"] / meta["fps"] if meta["fps"] > 0 else 0
+    cap.release()
+    return meta
+
+
+def extract_frames_chunked(video_path, fps=2, chunk_seconds=300):
+    """Generator that yields chunks of frames to avoid loading entire video into RAM.
+    Each chunk covers approximately chunk_seconds of video.
+    Yields: (frames_list, is_last_chunk)
+    """
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise RuntimeError(f"Cannot open video: {video_path}")
 
     video_fps = cap.get(cv2.CAP_PROP_FPS) or 30
     frame_interval = max(1, int(video_fps / fps))
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    chunk_frame_limit = int(chunk_seconds * fps)  # frames per chunk at target fps
 
-    frames = []
+    chunk = []
     frame_idx = 0
 
     while True:
@@ -242,18 +259,35 @@ def extract_frames(video_path, fps=2):
 
         if frame_idx % frame_interval == 0:
             timestamp = frame_idx / video_fps
-            frames.append({
+            chunk.append({
                 "frame": frame,
                 "timestamp": round(timestamp, 3),
                 "index": frame_idx,
             })
 
+            if len(chunk) >= chunk_frame_limit:
+                yield chunk, False
+                chunk = []
+
         frame_idx += 1
 
     cap.release()
 
-    return frames, {"fps": video_fps, "totalFrames": total_frames,
-                     "width": width, "height": height}
+    if chunk:
+        yield chunk, True
+    else:
+        yield [], True
+
+
+def extract_frames(video_path, fps=2):
+    """Extract all frames from video at the specified FPS. Loads entire video into RAM.
+    For long videos (>10 min), use extract_frames_chunked() instead.
+    """
+    meta = get_video_meta(video_path)
+    all_frames = []
+    for chunk, _is_last in extract_frames_chunked(video_path, fps=fps, chunk_seconds=9999):
+        all_frames.extend(chunk)
+    return all_frames, meta
 
 
 def run_yolo_detection(frames, video_meta):
@@ -1073,33 +1107,75 @@ def extract_key_frames(detections, ball_trajectory, player_paths, ball_contact_t
 
 
 def process_video(video_path, fps=2, max_crops=150, progress_callback=None):
-    """Run the full ML pipeline on a video."""
+    """Run the full ML pipeline on a video.
+    Supports long videos by processing frames in chunks to limit RAM usage.
+    YOLO ByteTrack persists across chunks (same model instance).
+    """
 
     if progress_callback:
-        progress_callback("Extracting frames", 5)
+        progress_callback("Reading video metadata", 2)
 
-    frames, video_meta = extract_frames(video_path, fps=fps)
+    video_meta = get_video_meta(video_path)
+    duration = video_meta.get("duration", 0)
+    is_long = duration > 600  # > 10 minutes
 
-    if len(frames) == 0:
+    # For long videos, process detection + pose in chunks to limit RAM
+    # For short videos, load all frames at once (simpler, same behavior as before)
+    chunk_seconds = 300 if is_long else 9999  # 5-min chunks for long videos
+
+    if progress_callback:
+        progress_callback("Extracting frames & detecting players", 5)
+
+    all_frames = []
+    detections = []
+    ball_trajectory = []
+    chunk_num = 0
+    estimated_chunks = max(1, int(duration / chunk_seconds)) if is_long else 1
+
+    for chunk_frames, is_last in extract_frames_chunked(video_path, fps=fps, chunk_seconds=chunk_seconds):
+        if not chunk_frames:
+            continue
+
+        chunk_num += 1
+        chunk_pct = int(5 + (chunk_num / estimated_chunks) * 25)
+
+        if progress_callback:
+            if is_long:
+                progress_callback(
+                    f"Processing chunk {chunk_num}/{estimated_chunks} "
+                    f"({chunk_frames[0]['timestamp']:.0f}s-{chunk_frames[-1]['timestamp']:.0f}s)",
+                    min(chunk_pct, 30),
+                )
+            else:
+                progress_callback("Running player detection", 15)
+
+        # YOLO detection — ByteTrack persists across chunks via model.track(persist=True)
+        chunk_dets, chunk_balls = run_yolo_detection(chunk_frames, video_meta)
+        detections.extend(chunk_dets)
+        ball_trajectory.extend(chunk_balls)
+
+        # Pose estimation on this chunk (while frames are in RAM)
+        run_pose_estimation(chunk_frames, chunk_dets, video_meta)
+
+        # Keep frames for cropping but release BGR data for already-processed
+        # pose frames. We only need the frame for crop_players later.
+        all_frames.extend(chunk_frames)
+
+    if len(all_frames) == 0:
         return {"error": "No frames extracted from video"}
-
-    if progress_callback:
-        progress_callback("Running player detection", 15)
-
-    # Step 1: YOLO detection with ByteTrack
-    detections, ball_trajectory = run_yolo_detection(frames, video_meta)
-
-    if progress_callback:
-        progress_callback("Estimating player poses", 30)
-
-    # Step 2: Per-player pose estimation (MediaPipe on each crop)
-    run_pose_estimation(frames, detections, video_meta)
 
     if progress_callback:
         progress_callback("Cropping players", 40)
 
     # Step 3: Track-aware crop players for embedding
-    crops = crop_players(frames, detections, max_crops=max_crops)
+    # Scale max_crops with video length (more frames = more diversity needed)
+    effective_max_crops = max(max_crops, int(len(all_frames) * 0.5)) if is_long else max_crops
+    effective_max_crops = min(effective_max_crops, 500)  # cap at 500
+    crops = crop_players(all_frames, detections, max_crops=effective_max_crops)
+
+    # Release frame BGR data — no longer needed after cropping
+    for f in all_frames:
+        f["frame"] = None
 
     if progress_callback:
         progress_callback("Extracting visual features", 50)
@@ -1178,13 +1254,15 @@ def process_video(video_path, fps=2, max_crops=150, progress_callback=None):
         "filteredTracks": [int(t) for t in filtered_tracks],
         "processingMeta": {
             "fps": fps,
-            "framesProcessed": len(frames),
+            "framesProcessed": len(all_frames),
             "playersDetected": sum(len(d["players"]) for d in detections),
             "uniquePlayersTracked": len(unique_track_ids),
             "ballDetections": len(ball_trajectory),
             "cropsEmbedded": len(crops),
             "tracksMerged": len(merge_map),
             "nonPlayersFiltered": len(filtered_tracks),
+            "videoDuration": round(duration, 1),
+            "isLongVideo": is_long,
             "modelVersion": "yolov8n + mediapipe-pose + siglip-reID",
             "poseEstimation": True,
             "trackingEnabled": True,

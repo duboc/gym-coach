@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 8080;
 
 // Config
 const MAX_VIDEO_SIZE_MB = parseInt(process.env.MAX_VIDEO_SIZE_MB || '100');
-const MAX_VIDEO_DURATION = parseInt(process.env.MAX_VIDEO_DURATION_SECONDS || '300');
+const MAX_VIDEO_DURATION = parseInt(process.env.MAX_VIDEO_DURATION_SECONDS || '7200');
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
 const GEMINI_TEMPERATURE = parseFloat(process.env.GEMINI_TEMPERATURE || '0.15');
 const ML_ANALYSIS_FPS = parseFloat(process.env.ML_ANALYSIS_FPS || '2');
@@ -383,7 +383,7 @@ app.post('/api/video/ml-analyze', async (req, res) => {
     const { execSync } = require('child_process');
     const result = execSync(
       `python3 ml_pipeline.py "${tmpPath}" --fps ${ML_ANALYSIS_FPS} --max-crops 150`,
-      { timeout: 300000, maxBuffer: 50 * 1024 * 1024 }
+      { timeout: 1800000, maxBuffer: 50 * 1024 * 1024 }
     ).toString();
 
     fs.unlinkSync(tmpPath);
@@ -592,7 +592,7 @@ app.post('/api/youtube/import', async (req, res) => {
       `yt-dlp -f "best[height<=720][ext=mp4]/best[ext=mp4]/best" ` +
       `--max-filesize ${MAX_VIDEO_SIZE_MB}M ` +
       `--socket-timeout 30 -o "${tmpPath}" "https://www.youtube.com/watch?v=${videoId}"`,
-      { timeout: 120000, maxBuffer: 10 * 1024 * 1024 }
+      { timeout: 600000, maxBuffer: 10 * 1024 * 1024 }
     );
 
     if (!fs.existsSync(tmpPath)) {
