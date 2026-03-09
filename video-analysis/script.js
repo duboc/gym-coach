@@ -555,9 +555,18 @@ async function runFullPipeline(uploadResult, videoFile) {
   const { fileName, gcsUri } = uploadResult;
   currentGcsUri = gcsUri;
 
-  // --- Step 3: ML pipeline + MediaPipe extraction in parallel ---
+  // For match-mode videos (especially long ones), skip client-side MediaPipe.
+  // The ML pipeline already extracts pose keypoints server-side at the processing FPS.
+  // Client-side MediaPipe at 15fps on a 90-min video would take hours.
+  const isMatch = analysisMode === 'match';
+  const videoDuration = triageResult?.duration || 0;
+  const skipClientPose = isMatch || videoDuration > 300;
+
+  // --- Step 3: ML pipeline + optional MediaPipe extraction ---
   setStepState('step-extract', 'active');
-  updateProgress('Running ML detection + pose extraction...', 15);
+  updateProgress(skipClientPose
+    ? 'Running ML detection + tracking...'
+    : 'Running ML detection + pose extraction...', 15);
 
   const mlPromise = runMlAnalysis(fileName).then((ml) => {
     mlResultsData = ml;
@@ -567,29 +576,34 @@ async function runFullPipeline(uploadResult, videoFile) {
     return null;
   });
 
-  // MediaPipe pose extraction (needs video file for client-side processing)
-  let mediapipeFile = videoFile;
-  if (!mediapipeFile) {
-    // Download video blob for MediaPipe (YouTube / library flows)
-    const videoBlob = await fetch(`/api/video/stream/${fileName}`).then((r) => r.blob());
-    mediapipeFile = new File([videoBlob], 'video.mp4', { type: 'video/mp4' });
-  }
-
-  videoProcessor = new VideoProcessor();
-  const processingVideo = document.getElementById('processing-video');
-  const processingCanvas = document.getElementById('processing-canvas');
-  await videoProcessor.initialize(processingVideo, processingCanvas);
-
-  const mediapipePromise = videoProcessor.processVideo(
-    mediapipeFile,
-    (progress) => {
-      const overall = 15 + progress * 0.35;
-      updateProgress(`Extracting pose data... (frame ${videoProcessor.currentFrame}/${videoProcessor.totalFrames})`, overall);
+  // Only run client-side MediaPipe for short technique videos
+  let mediapipePromise;
+  if (skipClientPose) {
+    mediapipePromise = Promise.resolve(null);
+  } else {
+    // MediaPipe pose extraction (needs video file for client-side processing)
+    let mediapipeFile = videoFile;
+    if (!mediapipeFile) {
+      const videoBlob = await fetch(`/api/video/stream/${fileName}`).then((r) => r.blob());
+      mediapipeFile = new File([videoBlob], 'video.mp4', { type: 'video/mp4' });
     }
-  ).then((landmarks) => {
-    landmarksData = landmarks;
-    return landmarks;
-  });
+
+    videoProcessor = new VideoProcessor();
+    const processingVideo = document.getElementById('processing-video');
+    const processingCanvas = document.getElementById('processing-canvas');
+    await videoProcessor.initialize(processingVideo, processingCanvas);
+
+    mediapipePromise = videoProcessor.processVideo(
+      mediapipeFile,
+      (progress) => {
+        const overall = 15 + progress * 0.35;
+        updateProgress(`Extracting pose data... (frame ${videoProcessor.currentFrame}/${videoProcessor.totalFrames})`, overall);
+      }
+    ).then((landmarks) => {
+      landmarksData = landmarks;
+      return landmarks;
+    });
+  }
 
   // --- Step 4 & 5: Gemini analyses start as prerequisites finish ---
   const matchPromise = mlPromise.then(async (ml) => {
@@ -609,20 +623,26 @@ async function runFullPipeline(uploadResult, videoFile) {
     return null;
   });
 
-  const techniquePromise = mediapipePromise.then(async (landmarks) => {
-    updateProgress('Running AI technique analysis...', 65);
-    return analyzeVideoOnServer(
-      gcsUri,
-      landmarks,
-      'auto-detect',
-      videoProcessor.getMetadata()
-    );
-  }).catch((err) => {
-    console.warn('Technique analysis failed (non-fatal):', err.message);
-    return null;
-  });
+  let techniquePromise;
+  if (skipClientPose) {
+    // No client-side landmarks — skip technique analysis for match videos
+    techniquePromise = Promise.resolve(null);
+  } else {
+    techniquePromise = mediapipePromise.then(async (landmarks) => {
+      updateProgress('Running AI technique analysis...', 65);
+      return analyzeVideoOnServer(
+        gcsUri,
+        landmarks,
+        'auto-detect',
+        videoProcessor.getMetadata()
+      );
+    }).catch((err) => {
+      console.warn('Technique analysis failed (non-fatal):', err.message);
+      return null;
+    });
+  }
 
-  // --- Step 6: Wait for both ---
+  // --- Step 6: Wait for analyses ---
   setStepState('step-analyze', 'active');
   const [matchResult, techniqueResult] = await Promise.all([matchPromise, techniquePromise]);
 
