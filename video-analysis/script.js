@@ -1371,15 +1371,6 @@ function renderMatchCharts() {
     }
   );
 
-  matchCharts.renderSpeedChart(
-    document.getElementById('chart-speed'),
-    {
-      playerPaths: ml.playerPaths || null,
-      playerStats: ml.playerStats || null,
-      duration: resultVideo.duration || 0,
-    }
-  );
-
   matchCharts.renderPassNetwork(
     document.getElementById('chart-pass-network'),
     {

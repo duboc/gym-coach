@@ -167,9 +167,6 @@ export default class MatchCharts {
         framesVisible: s.framesVisible || 0,
         possessionFrames: s.possessionFrames || 0,
         firstSeen: s.firstSeen || 0,
-        totalDistanceM: s.totalDistanceM || 0,
-        avgSpeedKmh: s.avgSpeedKmh || 0,
-        topSpeedKmh: s.topSpeedKmh || 0,
       }))
       .sort((a, b) => b.framesVisible - a.framesVisible);
 
@@ -194,8 +191,8 @@ export default class MatchCharts {
           <text x="${PAD.left - 8}" y="${y + barH / 2 + 4}" text-anchor="end" fill="${TEXT_COLOR}" font-size="12" font-weight="600">#${p.id} (${teamLabel})</text>
           <rect x="${PAD.left}" y="${y}" width="${barW}" height="${barH}" rx="4" fill="${teamColorLight}"/>
           <rect x="${PAD.left}" y="${y}" width="${possW}" height="${barH}" rx="4" fill="${teamColor}"/>
-          <text x="${PAD.left + barW + 6}" y="${y + barH / 2 + 4}" fill="${TEXT_COLOR}" font-size="11">${p.totalDistanceM > 0 ? `${p.totalDistanceM}m · ${p.topSpeedKmh}km/h` : `${p.framesVisible}f`}</text>
-          <title>Jogador #${p.id} — ${p.framesVisible} quadros, ${p.possessionFrames} posse, ${p.totalDistanceM}m percorridos, máx ${p.topSpeedKmh}km/h</title>
+          <text x="${PAD.left + barW + 6}" y="${y + barH / 2 + 4}" fill="${TEXT_COLOR}" font-size="11">${p.framesVisible} quadros · ${p.possessionFrames} posse</text>
+          <title>Jogador #${p.id} — ${p.framesVisible} quadros, ${p.possessionFrames} posse</title>
         </g>
       `;
     });
@@ -636,132 +633,6 @@ export default class MatchCharts {
         </svg>
       </div>
     `;
-  }
-
-  // ─── Speed Over Time (line chart) ─────────────────────────────────
-  renderSpeedChart(container, { playerPaths, playerStats, duration }) {
-    if (!container) return;
-    const dur = duration || this.duration;
-
-    if (!playerPaths || Object.keys(playerPaths).length === 0) {
-      container.innerHTML = '<div class="match-chart-empty">Sem dados de trajetória para gráfico de velocidade</div>';
-      return;
-    }
-
-    const W = 600, H = 200, PAD = { top: 25, right: 20, bottom: 30, left: 45 };
-    const plotW = W - PAD.left - PAD.right;
-    const plotH = H - PAD.top - PAD.bottom;
-
-    // Compute average team speed over time (binned in 2s intervals)
-    const binSize = 2;
-    const numBins = Math.max(1, Math.ceil(dur / binSize));
-    const teamBins = { 0: Array(numBins).fill(null), 1: Array(numBins).fill(null) };
-    const teamCounts = { 0: Array(numBins).fill(0), 1: Array(numBins).fill(0) };
-
-    for (const [tid, path] of Object.entries(playerPaths)) {
-      const teamId = playerStats?.[tid]?.teamId ?? -1;
-      if (teamId < 0 || teamId > 1) continue;
-
-      for (let i = 1; i < path.length; i++) {
-        const p0 = path[i - 1], p1 = path[i];
-        const t0 = p0.timestamp ?? 0, t1 = p1.timestamp ?? 0;
-        const dt = t1 - t0;
-        if (dt <= 0 || dt > 2) continue;
-
-        const dx = (p1.x ?? p1[0] ?? 0) - (p0.x ?? p0[0] ?? 0);
-        const dy = (p1.y ?? p1[1] ?? 0) - (p0.y ?? p0[1] ?? 0);
-        const speed = Math.sqrt(dx * dx + dy * dy) / dt; // normalized/sec
-
-        const binIdx = Math.min(numBins - 1, Math.floor(t1 / binSize));
-        if (teamBins[teamId][binIdx] === null) teamBins[teamId][binIdx] = 0;
-        teamBins[teamId][binIdx] += speed;
-        teamCounts[teamId][binIdx]++;
-      }
-    }
-
-    // Average speeds per bin
-    for (const teamId of [0, 1]) {
-      for (let i = 0; i < numBins; i++) {
-        if (teamCounts[teamId][i] > 0) {
-          teamBins[teamId][i] /= teamCounts[teamId][i];
-        }
-      }
-    }
-
-    const allSpeeds = [...teamBins[0], ...teamBins[1]].filter((v) => v !== null);
-    if (allSpeeds.length === 0) {
-      container.innerHTML = '<div class="match-chart-empty">Dados insuficientes para gráfico de velocidade</div>';
-      return;
-    }
-    const maxSpeed = Math.max(0.001, ...allSpeeds);
-
-    const xScale = (i) => PAD.left + (i / (numBins - 1 || 1)) * plotW;
-    const yScale = (v) => PAD.top + plotH - (v / maxSpeed) * plotH;
-
-    // Build line paths for each team
-    const buildPath = (bins) => {
-      let path = '';
-      let started = false;
-      for (let i = 0; i < numBins; i++) {
-        if (bins[i] === null) { started = false; continue; }
-        const cmd = started ? 'L' : 'M';
-        path += ` ${cmd} ${xScale(i)} ${yScale(bins[i])}`;
-        started = true;
-      }
-      return path;
-    };
-
-    const pathA = buildPath(teamBins[0]);
-    const pathB = buildPath(teamBins[1]);
-
-    // Time labels
-    const labelCount = Math.min(6, numBins);
-    const labelStep = Math.max(1, Math.floor(numBins / labelCount));
-    let timeLabels = '';
-    for (let i = 0; i < numBins; i += labelStep) {
-      const t = i * binSize;
-      const x = xScale(i);
-      timeLabels += `<text x="${x}" y="${H - 5}" text-anchor="middle" fill="${TEXT_COLOR}" font-size="11">${this._fmtTime(t)}</text>`;
-    }
-
-    // Y-axis labels
-    let yLabels = '';
-    for (let i = 0; i <= 4; i++) {
-      const v = (maxSpeed * i) / 4;
-      const y = yScale(v);
-      yLabels += `<line x1="${PAD.left}" y1="${y}" x2="${W - PAD.right}" y2="${y}" stroke="${LINE_COLOR}" stroke-width="0.5" stroke-dasharray="3 3"/>`;
-      yLabels += `<text x="${PAD.left - 5}" y="${y + 4}" text-anchor="end" fill="${TEXT_COLOR}" font-size="10">${(v * 100).toFixed(0)}</text>`;
-    }
-
-    container.innerHTML = `
-      <div class="match-chart-container">
-        <h4><i class="fas fa-tachometer-alt"></i> Velocidade dos Times ao Longo do Tempo</h4>
-        <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" class="mc-svg mc-speed-chart" data-duration="${dur}">
-          ${yLabels}
-          <line x1="${PAD.left}" y1="${PAD.top + plotH}" x2="${W - PAD.right}" y2="${PAD.top + plotH}" stroke="${LINE_COLOR}" stroke-width="1"/>
-          <path d="${pathA}" fill="none" stroke="${TEAM_A_COLOR}" stroke-width="2" opacity="0.8"/>
-          <path d="${pathB}" fill="none" stroke="${TEAM_B_COLOR}" stroke-width="2" opacity="0.8"/>
-          <line class="mc-playhead" data-chart="speed" x1="${PAD.left}" y1="${PAD.top}" x2="${PAD.left}" y2="${PAD.top + plotH}" stroke="#202124" stroke-width="1.5" opacity="0.7"/>
-          ${timeLabels}
-          <rect x="${PAD.left}" y="4" width="10" height="10" rx="2" fill="${TEAM_A_COLOR}"/>
-          <text x="${PAD.left + 14}" y="13" fill="${TEXT_COLOR}" font-size="11">Time A</text>
-          <rect x="${PAD.left + 70}" y="4" width="10" height="10" rx="2" fill="${TEAM_B_COLOR}"/>
-          <text x="${PAD.left + 84}" y="13" fill="${TEXT_COLOR}" font-size="11">Time B</text>
-          <rect x="${PAD.left}" y="${PAD.top}" width="${plotW}" height="${plotH}" fill="transparent" class="mc-click-area" style="cursor:pointer"/>
-        </svg>
-      </div>
-    `;
-
-    const clickArea = container.querySelector('.mc-click-area');
-    if (clickArea) {
-      clickArea.addEventListener('click', (e) => {
-        const rect = clickArea.closest('svg').getBoundingClientRect();
-        const relX = e.clientX - rect.left;
-        const svgW = rect.width;
-        const ratio = Math.max(0, Math.min(1, (relX - (PAD.left / W) * svgW) / ((plotW / W) * svgW)));
-        this.seekVideo(ratio * dur);
-      });
-    }
   }
 
   // ─── Rede de Passes (nodes + links between players) ─────────────────
