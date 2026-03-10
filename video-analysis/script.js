@@ -425,8 +425,8 @@ async function importYouTubeVideo() {
     analysisMode = triageResult.suggestedMode;
     document.querySelector('#step-triage .step-status').textContent =
       analysisMode === 'match'
-        ? `Match (${triageResult.avgPersonCount} players avg)`
-        : `Technique (${triageResult.avgPersonCount} person)`;
+        ? `Jogo (${triageResult.medianPersonCount || triageResult.avgPersonCount} jogadores, ${Math.round((triageResult.consistencyRatio || 0) * 100)}% consistência)`
+        : `Técnica (${triageResult.avgPersonCount} pessoa${triageResult.avgPersonCount !== 1 ? 's' : ''})`;
     setStepState('step-triage', 'done');
 
     // Run both pipelines (video blob downloaded inside runFullPipeline if needed)
@@ -594,8 +594,8 @@ async function analyzeFromLibrary(fileName, gcsUri, originalName) {
     analysisMode = triageResult.suggestedMode;
     document.querySelector('#step-triage .step-status').textContent =
       analysisMode === 'match'
-        ? `Match (${triageResult.avgPersonCount} players avg)`
-        : `Technique (${triageResult.avgPersonCount} person)`;
+        ? `Jogo (${triageResult.medianPersonCount || triageResult.avgPersonCount} jogadores, ${Math.round((triageResult.consistencyRatio || 0) * 100)}% consistência)`
+        : `Técnica (${triageResult.avgPersonCount} pessoa${triageResult.avgPersonCount !== 1 ? 's' : ''})`;
     setStepState('step-triage', 'done');
 
     const uploadResult = { fileName, gcsUri };
@@ -637,8 +637,8 @@ async function processVideo() {
     analysisMode = triageResult.suggestedMode;
     document.querySelector('#step-triage .step-status').textContent =
       analysisMode === 'match'
-        ? `Match (${triageResult.avgPersonCount} players avg)`
-        : `Technique (${triageResult.avgPersonCount} person)`;
+        ? `Jogo (${triageResult.medianPersonCount || triageResult.avgPersonCount} jogadores, ${Math.round((triageResult.consistencyRatio || 0) * 100)}% consistência)`
+        : `Técnica (${triageResult.avgPersonCount} pessoa${triageResult.avgPersonCount !== 1 ? 's' : ''})`;
     setStepState('step-triage', 'done');
 
     // Step 3+: Run both pipelines in parallel
@@ -708,11 +708,12 @@ async function runFullPipeline(uploadResult, videoFile) {
   }
 
   // --- Step 4 & 5: Gemini analyses start as prerequisites finish ---
-  const matchPromise = mlPromise.then(async (ml) => {
+  // Only run match analysis if triage classified as match mode
+  const matchPromise = isMatch ? mlPromise.then(async (ml) => {
     if (!ml) return null;
     const meta = ml.processingMeta || {};
     document.querySelector('#step-extract .step-status').textContent =
-      `${meta.uniquePlayersTracked || '?'} players tracked`;
+      `${meta.uniquePlayersTracked || '?'} jogadores rastreados`;
     updateProgress('Executando análise de jogo com IA...', 55);
     const metadata = {
       duration: triageResult?.duration || 0,
@@ -723,7 +724,7 @@ async function runFullPipeline(uploadResult, videoFile) {
   }).catch((err) => {
     console.warn('Match analysis failed (non-fatal):', err.message);
     return null;
-  });
+  }) : Promise.resolve(null);
 
   let techniquePromise;
   if (skipClientPose) {

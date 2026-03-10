@@ -155,9 +155,10 @@ def run_pose_estimation(frames, detections, video_meta):
                 player["keypoints"] = keypoints
 
 
-def triage_video(video_path, sample_frames=5):
-    """Quick triage: sample a few frames with YOLOv8 only (no tracking, no SigLIP).
+def triage_video(video_path, sample_frames=10):
+    """Quick triage: sample frames with YOLOv8 only (no tracking, no SigLIP).
     Determines if video is a multi-player match or single-player technique.
+    Uses person count consistency to avoid false positives from camera cuts.
     Returns dict with person count stats and suggested mode.
     """
     model = get_yolo_model()
@@ -201,8 +202,19 @@ def triage_video(video_path, sample_frames=5):
 
     avg_persons = sum(person_counts) / len(person_counts) if person_counts else 0
     max_persons = max(person_counts) if person_counts else 0
+    min_persons = min(person_counts) if person_counts else 0
 
-    if avg_persons >= 3 or max_persons >= 4:
+    # Consistency check: real matches have stable, high player counts across frames.
+    # Training videos with camera cuts have high variance (some frames 1 person, some 3+).
+    # A match should have multiple players visible in MOST frames, not just spikes.
+    frames_with_many = sum(1 for c in person_counts if c >= 4)
+    consistency_ratio = frames_with_many / len(person_counts) if person_counts else 0
+
+    # Require: majority of frames show 4+ people AND median is high
+    sorted_counts = sorted(person_counts)
+    median_persons = sorted_counts[len(sorted_counts) // 2] if sorted_counts else 0
+
+    if median_persons >= 4 and consistency_ratio >= 0.5:
         suggested_mode = "match"
     else:
         suggested_mode = "technique"
@@ -210,7 +222,10 @@ def triage_video(video_path, sample_frames=5):
     return {
         "avgPersonCount": round(avg_persons, 1),
         "maxPersonCount": max_persons,
+        "minPersonCount": min_persons,
+        "medianPersonCount": median_persons,
         "personCountPerFrame": person_counts,
+        "consistencyRatio": round(consistency_ratio, 2),
         "hasBall": has_ball,
         "suggestedMode": suggested_mode,
         "duration": round(duration, 2),
