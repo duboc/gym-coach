@@ -395,7 +395,7 @@ app.post('/api/video/ml-analyze', async (req, res) => {
     const { execSync } = require('child_process');
     const result = execSync(
       `python3 ml_pipeline.py "${tmpPath}" --fps ${ML_ANALYSIS_FPS} --max-crops 300`,
-      { timeout: 1800000, maxBuffer: 200 * 1024 * 1024 }
+      { timeout: 3600000, maxBuffer: 200 * 1024 * 1024 }
     ).toString();
 
     fs.unlinkSync(tmpPath);
