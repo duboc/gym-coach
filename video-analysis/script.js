@@ -57,11 +57,16 @@ const FOCUS_WINDOW_SECONDS = 15;
 // INITIALIZATION
 // ========================================
 
+let currentAnalysisId = null; // Track current analysis for URL
+
 function init() {
   setupEventListeners();
   loadConfig();
   // Load library immediately since it's the default tab
   loadVideoLibrary();
+  // Handle URL hash routing
+  handleHashRoute();
+  window.addEventListener('hashchange', handleHashRoute);
 }
 
 function setupEventListeners() {
@@ -882,6 +887,9 @@ async function saveAnalysis(source, originalName, youtubeVideoId) {
 
     if (response.ok) {
       const result = await response.json();
+      currentAnalysisId = result.analysisId;
+      setUrlHash(`analysis/${result.analysisId}`);
+      updateBreadcrumbs('results');
       console.log('Analysis saved:', result.analysisId);
     }
   } catch (error) {
@@ -890,6 +898,8 @@ async function saveAnalysis(source, originalName, youtubeVideoId) {
 }
 
 async function viewSavedAnalysis(id) {
+  currentAnalysisId = id;
+  setUrlHash(`analysis/${id}`);
   showSection('processing');
   setStepState('step-upload', 'done');
   document.querySelector('#step-upload .step-status').textContent = 'Salvo anteriormente';
@@ -1871,6 +1881,8 @@ function downloadReport() {
 
 function resetAll() {
   stopOverlayLoop();
+  currentAnalysisId = null;
+  setUrlHash('');
   selectedFile = null;
   analysisData = null;
   landmarksData = null;
@@ -1943,6 +1955,68 @@ function resetAll() {
 function showSection(name) {
   [uploadSection, processingSection, resultsSection].forEach((s) => s.classList.remove('active'));
   document.getElementById(`${name}-section`).classList.add('active');
+  updateBreadcrumbs(name);
+}
+
+// ========================================
+// URL HASH ROUTING & BREADCRUMBS
+// ========================================
+
+function handleHashRoute() {
+  const hash = window.location.hash;
+  const match = hash.match(/^#analysis\/(.+)$/);
+  if (match) {
+    const id = match[1];
+    // Only load if we aren't already viewing this analysis
+    if (currentAnalysisId !== id) {
+      viewSavedAnalysis(id);
+    }
+  }
+}
+
+function setUrlHash(hash) {
+  // Use replaceState to avoid polluting history on every nav
+  if (hash) {
+    history.pushState(null, '', `#${hash}`);
+  } else {
+    history.pushState(null, '', window.location.pathname);
+  }
+}
+
+function updateBreadcrumbs(sectionName) {
+  const breadcrumbs = document.getElementById('breadcrumbs');
+  if (!breadcrumbs) return;
+
+  let crumbs = '<a href="#" class="breadcrumb-link" data-nav="home"><i class="fas fa-home"></i> Início</a>';
+
+  if (sectionName === 'upload') {
+    // Home view — no extra crumbs, update URL
+    setUrlHash('');
+  } else if (sectionName === 'processing') {
+    crumbs += '<span class="breadcrumb-separator">›</span>';
+    crumbs += '<span class="breadcrumb-current">Processando...</span>';
+  } else if (sectionName === 'results') {
+    const title = analysisData?.sections?.DETECTED_TECHNIQUE?.trim() || 'Análise';
+    const shortTitle = title.length > 40 ? title.substring(0, 40) + '…' : title;
+    crumbs += '<span class="breadcrumb-separator">›</span>';
+    crumbs += `<span class="breadcrumb-current">${escapeHtml(shortTitle)}</span>`;
+    if (currentAnalysisId) {
+      crumbs += `<span class="breadcrumb-separator">·</span>`;
+      crumbs += `<span class="breadcrumb-id" title="${currentAnalysisId}">${currentAnalysisId.substring(0, 8)}</span>`;
+    }
+  }
+
+  breadcrumbs.innerHTML = crumbs;
+
+  // Re-bind home click
+  breadcrumbs.querySelectorAll('[data-nav="home"]').forEach((link) => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      currentAnalysisId = null;
+      setUrlHash('');
+      resetAll();
+    });
+  });
 }
 
 function setStepState(stepId, state) {

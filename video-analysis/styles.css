@@ -115,6 +115,50 @@ body {
   letter-spacing: -0.2px;
 }
 
+/* ====================== BREADCRUMBS ====================== */
+.va-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  font-family: 'Google Sans Text', sans-serif;
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.va-breadcrumbs .breadcrumb-link {
+  color: var(--accent-blue);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.va-breadcrumbs .breadcrumb-link:hover {
+  color: var(--gc-blue-hover);
+  text-decoration: underline;
+}
+
+.va-breadcrumbs .breadcrumb-separator {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.va-breadcrumbs .breadcrumb-current {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.va-breadcrumbs .breadcrumb-id {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  background: var(--bg-surface);
+  padding: 1px 6px;
+  border-radius: 4px;
+  cursor: default;
+}
+
 /* ====================== SECTIONS ====================== */
 .va-section {
   display: none;
