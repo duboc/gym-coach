@@ -190,6 +190,14 @@ function setupEventListeners() {
     });
   });
 
+  // YouTube direct URL/ID
+  const youtubeDirectBtn = document.getElementById('youtube-direct-btn');
+  const youtubeUrlInput = document.getElementById('youtube-url');
+  youtubeDirectBtn.addEventListener('click', () => loadYouTubeByUrl(youtubeUrlInput.value));
+  youtubeUrlInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') loadYouTubeByUrl(youtubeUrlInput.value);
+  });
+
   // YouTube search
   const youtubeSearchBtn = document.getElementById('youtube-search-btn');
   const youtubeQueryInput = document.getElementById('youtube-query');
@@ -244,6 +252,55 @@ function clearFile() {
 // ========================================
 // YOUTUBE SEARCH & IMPORT
 // ========================================
+
+function parseYouTubeVideoId(input) {
+  if (!input) return null;
+  input = input.trim();
+  // Bare video ID (11 chars, alphanumeric + - + _)
+  if (/^[A-Za-z0-9_-]{11}$/.test(input)) return input;
+  try {
+    const url = new URL(input);
+    // youtube.com/watch?v=ID
+    if (url.searchParams.has('v')) return url.searchParams.get('v');
+    // youtu.be/ID
+    if (url.hostname === 'youtu.be') return url.pathname.slice(1).split('/')[0];
+    // youtube.com/embed/ID or youtube.com/v/ID
+    const embedMatch = url.pathname.match(/\/(embed|v|shorts)\/([A-Za-z0-9_-]{11})/);
+    if (embedMatch) return embedMatch[2];
+  } catch {
+    // Not a URL — check if it contains a video ID pattern
+    const idMatch = input.match(/[A-Za-z0-9_-]{11}/);
+    if (idMatch) return idMatch[0];
+  }
+  return null;
+}
+
+async function loadYouTubeByUrl(input) {
+  const videoId = parseYouTubeVideoId(input);
+  if (!videoId) {
+    alert('Could not parse a YouTube video ID from the input. Try a URL like https://youtube.com/watch?v=... or a bare 11-character ID.');
+    return;
+  }
+
+  const directBtn = document.getElementById('youtube-direct-btn');
+  directBtn.disabled = true;
+  directBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+
+  try {
+    const res = await fetch(`/api/youtube/info/${encodeURIComponent(videoId)}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to fetch video info');
+    }
+    const video = await res.json();
+    selectYouTubeVideo(video);
+  } catch (error) {
+    alert(`Error: ${error.message}`);
+  } finally {
+    directBtn.disabled = false;
+    directBtn.innerHTML = '<i class="fas fa-link"></i> Load';
+  }
+}
 
 async function searchYouTube(query) {
   if (!query || !query.trim()) return;

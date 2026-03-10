@@ -41,8 +41,15 @@
 
         <!-- YouTube Search Panel -->
         <div id="youtube-panel" class="youtube-panel hidden">
+          <div class="youtube-direct-bar">
+            <input type="text" id="youtube-url" class="youtube-input" placeholder="Paste YouTube URL or video ID (e.g. https://youtube.com/watch?v=... or CGFgHjeEkbY)">
+            <button class="btn btn-primary" id="youtube-direct-btn">
+              <i class="fas fa-link"></i> Load
+            </button>
+          </div>
+          <div class="youtube-divider"><span>or search</span></div>
           <div class="youtube-search-bar">
-            <input type="text" id="youtube-query" class="youtube-input" placeholder="Search for football technique videos (e.g. instep kick form)">
+            <input type="text" id="youtube-query" class="youtube-input" placeholder="Search for football videos (e.g. Chelsea vs Man City full match)">
             <button class="btn btn-primary" id="youtube-search-btn">
               <i class="fas fa-search"></i> Search
             </button>

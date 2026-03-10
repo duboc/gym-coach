@@ -148,6 +148,29 @@ body {
   display: none;
 }
 
+.youtube-direct-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.youtube-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.youtube-divider::before,
+.youtube-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-color);
+}
+
 .youtube-search-bar {
   display: flex;
   gap: 12px;
@@ -1343,6 +1366,7 @@ body {
     height: 180px;
   }
 
+  .youtube-direct-bar,
   .youtube-search-bar {
     flex-direction: column;
   }

@@ -583,6 +583,42 @@ app.post('/api/youtube/search', async (req, res) => {
   }
 });
 
+// --- YouTube Video Info (by ID) ---
+app.get('/api/youtube/info/:videoId', async (req, res) => {
+  try {
+    if (!YOUTUBE_API_KEY) {
+      return res.status(400).json({ error: 'YouTube API key not configured. Set YOUTUBE_API_KEY in .env' });
+    }
+
+    const { videoId } = req.params;
+    const youtube = getYouTube();
+
+    const detailsResponse = await youtube.videos.list({
+      part: 'snippet,contentDetails,statistics',
+      id: videoId,
+    });
+
+    if (!detailsResponse.data.items || detailsResponse.data.items.length === 0) {
+      return res.status(404).json({ error: 'Video not found' });
+    }
+
+    const item = detailsResponse.data.items[0];
+    res.json({
+      videoId: item.id,
+      title: item.snippet.title,
+      channelTitle: item.snippet.channelTitle,
+      thumbnail: item.snippet.thumbnails.medium?.url || item.snippet.thumbnails.default?.url,
+      publishedAt: item.snippet.publishedAt,
+      duration: formatYouTubeDuration(item.contentDetails.duration),
+      durationSeconds: parseYouTubeDuration(item.contentDetails.duration),
+      viewCount: item.statistics.viewCount || '0',
+    });
+  } catch (error) {
+    console.error('YouTube info error:', error);
+    res.status(500).json({ error: 'Failed to fetch video info', details: error.message });
+  }
+});
+
 // --- YouTube Import (download + upload to GCS) ---
 app.post('/api/youtube/import', async (req, res) => {
   try {
@@ -602,9 +638,9 @@ app.post('/api/youtube/import', async (req, res) => {
     console.log(`Downloading YouTube video ${videoId}...`);
     execSync(
       `yt-dlp -f "best[height<=720][ext=mp4]/best[ext=mp4]/best" ` +
-      `--max-filesize ${MAX_VIDEO_SIZE_MB}M ` +
+      `--max-filesize ${MAX_VIDEO_SIZE_MB}M --no-progress ` +
       `--socket-timeout 30 -o "${tmpPath}" "https://www.youtube.com/watch?v=${videoId}"`,
-      { timeout: 600000, maxBuffer: 10 * 1024 * 1024 }
+      { timeout: 600000, maxBuffer: 200 * 1024 * 1024 }
     );
 
     if (!fs.existsSync(tmpPath)) {
