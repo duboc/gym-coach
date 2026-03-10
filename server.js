@@ -228,35 +228,58 @@ app.post('/api/video/triage', async (req, res) => {
   }
 });
 
-// --- Video Analysis (Gemini technique analysis) ---
+// --- Video Analysis (Gemini technique analysis — parallel calls) ---
 app.post('/api/video/analyze', async (req, res) => {
   try {
-    const { gcsUri, landmarks, exerciseType, metadata } = req.body;
+    const { gcsUri, landmarks, exerciseType, metadata, biomechanicalSummary, detectionSummary } = req.body;
     if (!gcsUri) return res.status(400).json({ error: 'gcsUri required' });
 
-    const prompt = createVideoAnalysisPrompt(exerciseType, landmarks, metadata);
     const genai = getGenAI();
+    const geminiCall = async (prompt) => {
+      const response = await genai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { fileData: { fileUri: gcsUri, mimeType: 'video/mp4' } },
+              { text: prompt },
+            ],
+          },
+        ],
+        config: { temperature: GEMINI_TEMPERATURE },
+      });
+      return response.text || '';
+    };
 
-    const response = await genai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { fileData: { fileUri: gcsUri, mimeType: 'video/mp4' } },
-            { text: prompt },
-          ],
-        },
-      ],
-      config: { temperature: GEMINI_TEMPERATURE },
-    });
+    // Main technique analysis prompt (enhanced with biomechanical + detection data)
+    const mainPrompt = createVideoAnalysisPrompt(exerciseType, landmarks, metadata, biomechanicalSummary, detectionSummary);
 
-    const text = response.text || '';
-    const sections = parseAnalysisSections(text);
+    // Parallel biomechanics-focused call if we have structured data
+    const hasBioData = biomechanicalSummary && biomechanicalSummary.keyFrameAngles;
+
+    const mainPromise = geminiCall(mainPrompt);
+
+    const bioPromise = hasBioData
+      ? geminiCall(createBiomechanicsPrompt(biomechanicalSummary, metadata))
+          .catch(() => '')
+      : Promise.resolve('');
+
+    const [mainText, bioText] = await Promise.all([mainPromise, bioPromise]);
+    const sections = parseAnalysisSections(mainText);
+
+    // Merge biomechanics sections if available
+    if (bioText) {
+      const bioSections = parseAnalysisSections(bioText);
+      if (bioSections.JOINT_ANGLE_ANALYSIS) sections.JOINT_ANGLE_ANALYSIS = bioSections.JOINT_ANGLE_ANALYSIS;
+      if (bioSections.SYMMETRY_ASSESSMENT) sections.SYMMETRY_ASSESSMENT = bioSections.SYMMETRY_ASSESSMENT;
+      if (bioSections.MOVEMENT_VELOCITY) sections.MOVEMENT_VELOCITY = bioSections.MOVEMENT_VELOCITY;
+      if (bioSections.INJURY_RISK) sections.INJURY_RISK = bioSections.INJURY_RISK;
+    }
 
     res.json({
       success: true,
-      rawText: text,
+      rawText: mainText + (bioText ? '\n---\n' + bioText : ''),
       analysis: { sections },
     });
   } catch (error) {
@@ -679,6 +702,27 @@ app.post('/api/analysis/save', async (req, res) => {
     const analysisId = uuidv4();
     const db = getFirestore();
 
+    // Build summary stats from ML results for library cards
+    const mlSummary = {};
+    if (data.mlResults) {
+      const meta = data.mlResults.processingMeta || {};
+      mlSummary.framesProcessed = meta.framesProcessed || 0;
+      mlSummary.uniquePlayers = meta.uniquePlayersTracked || 0;
+      mlSummary.ballDetections = meta.ballDetections || 0;
+      mlSummary.cameraCuts = meta.cameraCutsDetected || 0;
+      mlSummary.passCount = (data.mlResults.passEvents || []).filter(e => e.type === 'pass').length;
+      mlSummary.keyFrameCount = (data.mlResults.keyFrames || []).length;
+    }
+
+    // Include client-side object detection stats (EfficientDet-Lite2)
+    if (data.detectionSummary && data.detectionSummary.hasObjectDetection) {
+      mlSummary.clientBallDetectionRate = data.detectionSummary.ballDetectionRate || 0;
+      mlSummary.clientAvgPlayers = data.detectionSummary.avgPlayersPerFrame || 0;
+      mlSummary.clientMaxPlayers = data.detectionSummary.maxPlayersDetected || 0;
+      mlSummary.clientSpectators = data.detectionSummary.avgSpectatorsPerFrame || 0;
+      mlSummary.hasClientDetection = true;
+    }
+
     // Save metadata to Firestore
     const doc = {
       id: analysisId,
@@ -691,6 +735,7 @@ app.post('/api/analysis/save', async (req, res) => {
       youtubeVideoId: data.youtubeVideoId || null,
       videoMetadata: data.videoMetadata || {},
       analysisType: data.analysisType || 'technique',
+      mlSummary: Object.keys(mlSummary).length > 0 ? mlSummary : null,
       createdAt: new Date().toISOString(),
     };
 
@@ -753,6 +798,7 @@ app.get('/api/analysis/list', async (req, res) => {
         hasLandmarks: data.hasLandmarks,
         hasMlResults: data.hasMlResults,
         hasMatchAnalysis: data.hasMatchAnalysis,
+        mlSummary: data.mlSummary || null,
       });
     });
 
@@ -905,12 +951,62 @@ Evaluate these sport-specific biomechanical factors:
 - FOLLOW-THROUGH: Length and direction relative to intended target.`;
 }
 
-function createVideoAnalysisPrompt(exerciseType, landmarks, metadata) {
+function createVideoAnalysisPrompt(exerciseType, landmarks, metadata, biomechanicalSummary, detectionSummary) {
   const isAutoDetect = !exerciseType || exerciseType === 'auto-detect';
 
-  const landmarkSummary = landmarks && landmarks.length > 0
-    ? `\nI have extracted ${landmarks.length} frames of MediaPipe pose landmarks from this video.`
+  let landmarkSummary = landmarks && landmarks.length > 0
+    ? `\nI have extracted ${landmarks.length} frames of MediaPipe pose landmarks (33-point 3D model with depth) from this video.`
     : '';
+
+  // Append object detection data if available (EfficientDet-Lite2)
+  if (detectionSummary && detectionSummary.hasObjectDetection) {
+    landmarkSummary += '\n\nOBJECT DETECTION DATA (EfficientDet-Lite2 — client-side):';
+    landmarkSummary += `\n  Ball detected in ${detectionSummary.framesWithBall} of ${detectionSummary.totalFrames} frames (${detectionSummary.ballDetectionRate}% detection rate)`;
+    landmarkSummary += `\n  Ball avg velocity: ${detectionSummary.ballAvgVelocity}, peak: ${detectionSummary.ballMaxVelocity} (normalized units/sec)`;
+    landmarkSummary += `\n  Average players on field per frame: ${detectionSummary.avgPlayersPerFrame} (max: ${detectionSummary.maxPlayersDetected})`;
+    landmarkSummary += `\n  Spectators/non-players detected per frame: ${detectionSummary.avgSpectatorsPerFrame}`;
+    if (detectionSummary.ballTrajectory && detectionSummary.ballTrajectory.length > 0) {
+      landmarkSummary += '\n  Ball trajectory samples:';
+      for (const bp of detectionSummary.ballTrajectory) {
+        landmarkSummary += `\n    t=${bp.timestamp}s: x=${bp.x}, y=${bp.y} (conf: ${bp.confidence})`;
+      }
+    }
+  }
+
+  // Append structured biomechanical data if available
+  if (biomechanicalSummary) {
+    const bio = biomechanicalSummary;
+    landmarkSummary += '\n\nSTRUCTURED BIOMECHANICAL DATA (from pose extraction):';
+
+    if (bio.keyFrameAngles && bio.keyFrameAngles.length > 0) {
+      landmarkSummary += '\n\nKey Frame Joint Angles (degrees):';
+      for (const kf of bio.keyFrameAngles) {
+        const angleStr = Object.entries(kf.angles).map(([k, v]) => `${k}: ${v}°`).join(', ');
+        landmarkSummary += `\n  t=${kf.timestamp}s: ${angleStr}`;
+      }
+    }
+
+    if (bio.maxVelocities && Object.keys(bio.maxVelocities).length > 0) {
+      landmarkSummary += '\n\nPeak Movement Velocities (normalized units/sec):';
+      for (const [joint, vel] of Object.entries(bio.maxVelocities)) {
+        landmarkSummary += `\n  ${joint}: ${vel} (avg: ${bio.avgVelocities?.[joint] || '?'})`;
+      }
+    }
+
+    if (bio.symmetryDiffs && Object.keys(bio.symmetryDiffs).length > 0) {
+      landmarkSummary += '\n\nBody Symmetry (avg L/R angle difference):';
+      for (const [pair, diff] of Object.entries(bio.symmetryDiffs)) {
+        landmarkSummary += `\n  ${pair}: ${diff}°`;
+      }
+    }
+
+    if (bio.visibilityStats) {
+      landmarkSummary += `\n\nLandmark Confidence: face ${bio.visibilityStats.face || 0}%, upper body ${bio.visibilityStats.upperBody || 0}%, lower body ${bio.visibilityStats.lowerBody || 0}%`;
+    }
+
+    landmarkSummary += `\n3D Depth Data: ${bio.has3dDepth ? 'Available' : 'Not available'}`;
+    landmarkSummary += `\nHand Tracking: ${bio.hasHands ? 'Detected' : 'Not detected'}`;
+  }
 
   const techniqueInstruction = isAutoDetect
     ? `First, identify the specific football technique being performed in this video.
@@ -984,7 +1080,9 @@ IMPROVEMENT_PLAN:
 Provide 3-5 specific, actionable recommendations ordered by impact. Each should reference a specific biomechanical correction (e.g., "Increase hip extension to 160°+ before contact" rather than "kick harder").
 
 OVERLAY_ANNOTATIONS:
-Suggest 2-3 specific visual overlays that highlight the biomechanical issues found. Reference specific joints, angles, or movement paths (e.g., "Track hip-knee-ankle angle through the kicking arc to show incomplete extension at contact").`;
+Suggest 2-3 specific visual overlays that highlight the biomechanical issues found. Reference specific joints, angles, or movement paths (e.g., "Track hip-knee-ankle angle through the kicking arc to show incomplete extension at contact").
+
+IMPORTANTE: Responda INTEIRAMENTE em Português Brasileiro.`;
 }
 
 function createRealtimeFeedbackPrompt(exerciseType, exerciseData, exerciseContext) {
@@ -1025,7 +1123,65 @@ One sentence on how the current set is going.
 BREATHING_REMINDER:
 A brief breathing cue appropriate for this exercise phase.
 
-Keep total response under 100 words. Be supportive and precise.`;
+Keep total response under 100 words. Be supportive and precise.
+
+IMPORTANTE: Responda INTEIRAMENTE em Português Brasileiro.`;
+}
+
+// ========================================
+// PARALLEL BIOMECHANICS ANALYSIS PROMPT
+// ========================================
+
+function createBiomechanicsPrompt(bioSummary, metadata) {
+  const anglesSection = (bioSummary.keyFrameAngles || [])
+    .map((kf) => {
+      const angleStr = Object.entries(kf.angles).map(([k, v]) => `${k}: ${v}°`).join(', ');
+      return `  t=${kf.timestamp}s: ${angleStr}`;
+    }).join('\n');
+
+  const velocitySection = Object.entries(bioSummary.maxVelocities || {})
+    .map(([joint, vel]) => `  ${joint}: peak=${vel}, avg=${bioSummary.avgVelocities?.[joint] || '?'}`)
+    .join('\n');
+
+  const symmetrySection = Object.entries(bioSummary.symmetryDiffs || {})
+    .map(([pair, diff]) => `  ${pair}: ${diff}° average difference`)
+    .join('\n');
+
+  return `You are a sports biomechanics scientist analyzing extracted pose data from a football technique video.
+
+VIDEO METADATA:
+- Duration: ${metadata?.duration || 'unknown'} seconds
+- Frames analyzed: ${metadata?.landmarksCount || 'unknown'}
+
+JOINT ANGLES AT KEY FRAMES (degrees):
+${anglesSection || 'No data'}
+
+PEAK MOVEMENT VELOCITIES (normalized units/sec — higher = faster movement):
+${velocitySection || 'No data'}
+
+BODY SYMMETRY (average left vs right angle difference — lower = more symmetric):
+${symmetrySection || 'No data'}
+
+LANDMARK CONFIDENCE: face ${bioSummary.visibilityStats?.face || 0}%, upper body ${bioSummary.visibilityStats?.upperBody || 0}%, lower body ${bioSummary.visibilityStats?.lowerBody || 0}%
+3D Depth: ${bioSummary.has3dDepth ? 'Available (relative to hip center)' : 'Not available'}
+
+Using this quantitative data, provide analysis in these exact sections:
+
+JOINT_ANGLE_ANALYSIS:
+Analyze the joint angle progression across the key frames. Identify the optimal and suboptimal angles at each phase of the movement. Compare against biomechanical norms for football techniques (e.g., knee flexion 90-120° at plant, hip extension 160°+ at contact).
+
+SYMMETRY_ASSESSMENT:
+Evaluate the left-right symmetry data. Note any significant asymmetries (>10° difference) that could indicate compensation patterns, injury risk, or dominant-side dependency.
+
+MOVEMENT_VELOCITY:
+Analyze the velocity profiles of different body parts. Identify which limbs generate the most speed and whether the kinetic chain sequencing is optimal (proximal-to-distal: hip → knee → ankle → foot).
+
+INJURY_RISK:
+Based on the angle data, velocity profiles, and symmetry assessment, identify any biomechanical patterns that increase injury risk (e.g., knee valgus, excessive trunk lean, asymmetric loading, insufficient deceleration).
+
+Keep each section focused and data-driven — reference specific numbers from the data provided.
+
+IMPORTANTE: Responda INTEIRAMENTE em Português Brasileiro.`;
 }
 
 // ========================================
@@ -1074,7 +1230,9 @@ DEFENDING_PATTERN:
 Identify defensive patterns: pressing triggers, defensive line height, compactness, and transition defense.
 
 TACTICAL_SUMMARY:
-2-3 sentence summary of the tactical battle and which team has the tactical advantage.`;
+2-3 sentence summary of the tactical battle and which team has the tactical advantage.
+
+IMPORTANTE: Responda INTEIRAMENTE em Português Brasileiro.`;
 }
 
 function createFocusWindowPrompt(trackId, teamId, timeWindow, keypoints, windowStats, previousInsights) {
@@ -1106,7 +1264,9 @@ Provide exactly 2-3 bullet points about what this player did in THIS specific ti
 • How was their technique and decision-making?
 • Any notable moments (good or bad)?
 
-Be specific and reference timestamps when possible. Do NOT repeat observations from previous windows. Keep it concise — max 3 bullet points.`;
+Be specific and reference timestamps when possible. Do NOT repeat observations from previous windows. Keep it concise — max 3 bullet points.
+
+IMPORTANTE: Responda INTEIRAMENTE em Português Brasileiro.`;
 }
 
 function createPlayerTechniquePrompt(trackId, teamId, keypoints, stats, playerPath) {
@@ -1180,7 +1340,9 @@ AREAS_FOR_IMPROVEMENT:
 List 3-5 areas where the player could improve, with specific biomechanical corrections (e.g., "Plant foot consistently 25cm+ from ball — move it closer to 15cm for better accuracy" rather than "improve passing").
 
 OVERALL_RATING:
-Provide an overall performance rating (1-10) with justification referencing specific biomechanical observations.`;
+Provide an overall performance rating (1-10) with justification referencing specific biomechanical observations.
+
+IMPORTANTE: Responda INTEIRAMENTE em Português Brasileiro.`;
 }
 
 function createPlayerAnalysisPrompt(trackId, playerStats, playerPath, metadata) {
@@ -1212,7 +1374,9 @@ MOVEMENT_QUALITY:
 Assess movement quality: positioning, off-the-ball runs, spatial awareness, work rate.
 
 PLAYER_ASSESSMENT:
-1-2 sentence overall assessment of this player's contribution to the match.`;
+1-2 sentence overall assessment of this player's contribution to the match.
+
+IMPORTANTE: Responda INTEIRAMENTE em Português Brasileiro.`;
 }
 
 function createEventDetectionPrompt(keyFrames, metadata) {
@@ -1239,7 +1403,9 @@ KEY_PLAYS:
 Describe the 2-3 most significant plays or sequences in detail.
 
 STANDOUT_MOMENTS:
-Identify any exceptional individual actions, tactical moves, or turning points.`;
+Identify any exceptional individual actions, tactical moves, or turning points.
+
+IMPORTANTE: Responda INTEIRAMENTE em Português Brasileiro.`;
 }
 
 function createPossessionPrompt(possessionTimeline, ballTrajectory, metadata) {
@@ -1270,7 +1436,9 @@ POSSESSION_CHANGES:
 Identify key moments where possession changed and what caused the turnovers.
 
 TERRITORIAL_CONTROL:
-Which team controls which areas of the pitch? Is play concentrated in one half?`;
+Which team controls which areas of the pitch? Is play concentrated in one half?
+
+IMPORTANTE: Responda INTEIRAMENTE em Português Brasileiro.`;
 }
 
 // ========================================

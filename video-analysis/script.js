@@ -60,6 +60,8 @@ const FOCUS_WINDOW_SECONDS = 15;
 function init() {
   setupEventListeners();
   loadConfig();
+  // Load library immediately since it's the default tab
+  loadVideoLibrary();
 }
 
 function setupEventListeners() {
@@ -122,7 +124,7 @@ function setupEventListeners() {
         triggerFocusAnalysis(focusLastWindowEnd, resultVideo.duration);
       }
       document.getElementById('focus-status').textContent =
-        `Complete — ${focusInsights.length} insights`;
+        `Completo — ${focusInsights.length} observações`;
     }
   });
 
@@ -170,8 +172,9 @@ function setupEventListeners() {
       // Hide all panels
       youtubePanel.classList.add('hidden');
       libraryPanel.classList.add('hidden');
-      uploadZone.style.display = 'none';
+      uploadZone.classList.add('hidden');
       filePreview.classList.add('hidden');
+      document.querySelector('.upload-config').style.display = 'none';
 
       if (tabName === 'youtube') {
         youtubePanel.classList.remove('hidden');
@@ -180,8 +183,9 @@ function setupEventListeners() {
         loadVideoLibrary();
       } else {
         // upload tab
+        document.querySelector('.upload-config').style.display = '';
         if (!selectedFile) {
-          uploadZone.style.display = '';
+          uploadZone.classList.remove('hidden');
         }
         if (selectedFile) {
           filePreview.classList.remove('hidden');
@@ -238,7 +242,7 @@ function selectFile(file) {
   document.getElementById('file-name').textContent = file.name;
   document.getElementById('file-size').textContent = formatFileSize(file.size);
   filePreview.classList.remove('hidden');
-  uploadZone.style.display = 'none';
+  uploadZone.classList.add('hidden');
 }
 
 function clearFile() {
@@ -246,7 +250,7 @@ function clearFile() {
   previewVideo.src = '';
   videoFileInput.value = '';
   filePreview.classList.add('hidden');
-  uploadZone.style.display = '';
+  uploadZone.classList.remove('hidden');
 }
 
 // ========================================
@@ -278,13 +282,13 @@ function parseYouTubeVideoId(input) {
 async function loadYouTubeByUrl(input) {
   const videoId = parseYouTubeVideoId(input);
   if (!videoId) {
-    alert('Could not parse a YouTube video ID from the input. Try a URL like https://youtube.com/watch?v=... or a bare 11-character ID.');
+    alert('Não foi possível identificar o ID do vídeo. Tente uma URL como https://youtube.com/watch?v=... ou um ID de 11 caracteres.');
     return;
   }
 
   const directBtn = document.getElementById('youtube-direct-btn');
   directBtn.disabled = true;
-  directBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+  directBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Carregando...';
 
   try {
     const res = await fetch(`/api/youtube/info/${encodeURIComponent(videoId)}`);
@@ -298,7 +302,7 @@ async function loadYouTubeByUrl(input) {
     alert(`Error: ${error.message}`);
   } finally {
     directBtn.disabled = false;
-    directBtn.innerHTML = '<i class="fas fa-link"></i> Load';
+    directBtn.innerHTML = '<i class="fas fa-link"></i> Carregar';
   }
 }
 
@@ -306,7 +310,7 @@ async function searchYouTube(query) {
   if (!query || !query.trim()) return;
 
   const resultsContainer = document.getElementById('youtube-results');
-  resultsContainer.innerHTML = '<div class="youtube-loading"><i class="fas fa-spinner fa-spin"></i> Searching YouTube...</div>';
+  resultsContainer.innerHTML = '<div class="youtube-loading"><i class="fas fa-spinner fa-spin"></i> Buscando no YouTube...</div>';
 
   try {
     const response = await fetch('/api/youtube/search', {
@@ -331,7 +335,7 @@ function renderYouTubeResults(results) {
   const container = document.getElementById('youtube-results');
 
   if (results.length === 0) {
-    container.innerHTML = '<div class="youtube-empty">No results found. Try a different search query.</div>';
+    container.innerHTML = '<div class="youtube-empty">Nenhum resultado encontrado. Tente uma busca diferente.</div>';
     return;
   }
 
@@ -388,7 +392,7 @@ async function importYouTubeVideo() {
   try {
     // Step 1: Import from YouTube (download + GCS upload)
     setStepState('step-upload', 'active');
-    updateProgress('Importing video from YouTube...', 5);
+    updateProgress('Importando vídeo do YouTube...', 5);
 
     const importResponse = await fetch('/api/youtube/import', {
       method: 'POST',
@@ -411,7 +415,7 @@ async function importYouTubeVideo() {
 
     // Auto-detect video type
     setStepState('step-triage', 'active');
-    updateProgress('Detecting video type...', 8);
+    updateProgress('Detectando tipo de vídeo...', 8);
     triageResult = await runTriage(importResult.fileName);
     analysisMode = triageResult.suggestedMode;
     document.querySelector('#step-triage .step-status').textContent =
@@ -427,7 +431,7 @@ async function importYouTubeVideo() {
     setTimeout(() => showResults(), 600);
   } catch (error) {
     console.error('YouTube import error:', error);
-    alert('Failed to import YouTube video: ' + error.message);
+    alert('Falha ao importar vídeo do YouTube: ' + error.message);
     resetAll();
   }
 }
@@ -458,7 +462,7 @@ function formatPublishedDate(dateStr) {
 
 async function loadVideoLibrary() {
   const container = document.getElementById('library-videos');
-  container.innerHTML = '<div class="library-loading"><i class="fas fa-spinner fa-spin"></i> Loading analyses...</div>';
+  container.innerHTML = '<div class="library-loading"><i class="fas fa-spinner fa-spin"></i> Carregando análises...</div>';
 
   try {
     const response = await fetch('/api/analysis/list');
@@ -471,11 +475,18 @@ async function loadVideoLibrary() {
   }
 }
 
+function _fmtDuration(seconds) {
+  if (!seconds || isNaN(seconds)) return '0:00';
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
 function renderAnalysisList(analyses) {
   const container = document.getElementById('library-videos');
 
   if (analyses.length === 0) {
-    container.innerHTML = '<div class="library-empty"><i class="fas fa-folder-open"></i><p>No analyses yet. Upload a file or import from YouTube to get started.</p></div>';
+    container.innerHTML = '<div class="library-empty"><i class="fas fa-folder-open"></i><p>Nenhuma análise ainda. Envie um arquivo ou importe do YouTube para começar.</p></div>';
     return;
   }
 
@@ -484,49 +495,78 @@ function renderAnalysisList(analyses) {
       ? '<span class="source-badge source-youtube"><i class="fab fa-youtube"></i> YouTube</span>'
       : '<span class="source-badge source-upload"><i class="fas fa-upload"></i> Upload</span>';
 
-    const sportBadge = '<span class="source-badge source-sport"><i class="fas fa-futbol"></i> football</span>';
-
     const typeBadge = item.analysisType === 'match'
-      ? '<span class="source-badge source-match"><i class="fas fa-users"></i> Match</span>'
-      : '<span class="source-badge source-technique"><i class="fas fa-user"></i> Technique</span>';
+      ? '<span class="source-badge source-match"><i class="fas fa-users"></i> Jogo</span>'
+      : '<span class="source-badge source-technique"><i class="fas fa-running"></i> Técnica</span>';
 
     const dateStr = item.createdAt ? formatPublishedDate(item.createdAt) : '';
+    const dur = item.videoMetadata?.duration;
+    const durStr = dur ? _fmtDuration(dur) : '';
+    const title = item.exerciseType || item.originalName || 'Análise';
+
+    // ML summary stats
+    const ml = item.mlSummary || {};
+    const hasML = ml.uniquePlayers > 0 || ml.framesProcessed > 0;
+
+    // Build ML stats row
+    let mlStatsHtml = '';
+    if (hasML) {
+      const stats = [];
+      if (ml.uniquePlayers) stats.push(`<span><i class="fas fa-users"></i> ${ml.uniquePlayers} jogadores</span>`);
+      if (ml.ballDetections) stats.push(`<span><i class="fas fa-futbol"></i> ${ml.ballDetections} detecções de bola</span>`);
+      if (ml.passCount) stats.push(`<span><i class="fas fa-exchange-alt"></i> ${ml.passCount} passes</span>`);
+      if (ml.keyFrameCount) stats.push(`<span><i class="fas fa-star"></i> ${ml.keyFrameCount} momentos-chave</span>`);
+      if (ml.cameraCuts) stats.push(`<span><i class="fas fa-cut"></i> ${ml.cameraCuts} cortes</span>`);
+      mlStatsHtml = `<div class="library-card-stats">${stats.join('')}</div>`;
+    }
+
+    // Feature badges
+    let featureBadges = '';
+    if (item.hasMlResults) featureBadges += '<span class="source-badge source-ml"><i class="fas fa-brain"></i> ML</span>';
+    if (item.hasMatchAnalysis) featureBadges += '<span class="source-badge source-ai"><i class="fas fa-robot"></i> Gemini</span>';
+    if (item.hasLandmarks) featureBadges += '<span class="source-badge source-pose"><i class="fas fa-bone"></i> Pose</span>';
 
     return `
-      <div class="library-card">
+      <div class="library-card" data-id="${item.id}">
         <div class="library-card-info">
           <div class="library-card-header">
-            <h4 class="library-card-title">${escapeHtml(item.exerciseType || item.originalName || 'Analysis')}</h4>
+            <h4 class="library-card-title">${escapeHtml(title)}</h4>
+          </div>
+          <div class="library-card-badges">
             ${sourceBadge}
-            ${sportBadge}
             ${typeBadge}
+            ${featureBadges}
           </div>
           <div class="library-card-meta">
-            ${item.originalName ? `<span><i class="fas fa-file-video"></i> ${escapeHtml(item.originalName)}</span>` : ''}
+            ${durStr ? `<span><i class="fas fa-clock"></i> ${durStr}</span>` : ''}
             ${dateStr ? `<span><i class="fas fa-calendar"></i> ${dateStr}</span>` : ''}
-            ${item.videoMetadata?.duration ? `<span><i class="fas fa-clock"></i> ${Math.round(item.videoMetadata.duration)}s</span>` : ''}
+            ${ml.framesProcessed ? `<span><i class="fas fa-images"></i> ${ml.framesProcessed} quadros</span>` : ''}
           </div>
+          ${mlStatsHtml}
         </div>
         <div class="library-card-actions">
-          <button class="btn btn-primary btn-sm library-view-btn" data-id="${item.id}">
-            <i class="fas fa-eye"></i> View Results
+          <button class="btn btn-primary library-view-btn" data-id="${item.id}">
+            <i class="fas fa-play-circle"></i> Ver Análise
           </button>
           <button class="btn btn-secondary btn-sm library-reanalyze-btn" data-file-name="${escapeHtml(item.fileName)}" data-gcs-uri="${escapeHtml(item.gcsUri || '')}" data-original-name="${escapeHtml(item.originalName || '')}">
-            <i class="fas fa-redo"></i> Re-Analyze
+            <i class="fas fa-redo"></i> Re-analisar
           </button>
         </div>
       </div>
     `;
   }).join('');
 
-  container.querySelectorAll('.library-view-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      viewSavedAnalysis(btn.dataset.id);
+  // Click anywhere on card to view
+  container.querySelectorAll('.library-card').forEach((card) => {
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.library-reanalyze-btn')) return;
+      viewSavedAnalysis(card.dataset.id);
     });
   });
 
   container.querySelectorAll('.library-reanalyze-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       analyzeFromLibrary(btn.dataset.fileName, btn.dataset.gcsUri || '', btn.dataset.originalName);
     });
   });
@@ -538,13 +578,13 @@ async function analyzeFromLibrary(fileName, gcsUri, originalName) {
   try {
     // Step 1: Already in GCS — skip upload
     setStepState('step-upload', 'done');
-    document.querySelector('#step-upload .step-status').textContent = 'Already in cloud';
+    document.querySelector('#step-upload .step-status').textContent = 'Já na nuvem';
     uploadedFileName = fileName;
     lastGcsUri = gcsUri;
 
     // Step 2: Auto-detect video type
     setStepState('step-triage', 'active');
-    updateProgress('Detecting video type...', 8);
+    updateProgress('Detectando tipo de vídeo...', 8);
     triageResult = await runTriage(fileName);
     analysisMode = triageResult.suggestedMode;
     document.querySelector('#step-triage .step-status').textContent =
@@ -562,7 +602,7 @@ async function analyzeFromLibrary(fileName, gcsUri, originalName) {
     setTimeout(() => showResults(), 600);
   } catch (error) {
     console.error('Library analysis error:', error);
-    alert('Failed to analyze video: ' + error.message);
+    alert('Falha ao analisar vídeo: ' + error.message);
     resetAll();
   }
 }
@@ -579,7 +619,7 @@ async function processVideo() {
   try {
     // Step 1: Upload to GCS
     setStepState('step-upload', 'active');
-    updateProgress('Uploading video to cloud...', 5);
+    updateProgress('Enviando vídeo para a nuvem...', 5);
     const uploadResult = await uploadVideoToServer(selectedFile);
     uploadedFileName = uploadResult.fileName;
     lastGcsUri = uploadResult.gcsUri;
@@ -587,7 +627,7 @@ async function processVideo() {
 
     // Step 2: Auto-detect video type via triage
     setStepState('step-triage', 'active');
-    updateProgress('Detecting video type...', 8);
+    updateProgress('Detectando tipo de vídeo...', 8);
     triageResult = await runTriage(uploadResult.fileName);
     analysisMode = triageResult.suggestedMode;
     document.querySelector('#step-triage .step-status').textContent =
@@ -603,7 +643,7 @@ async function processVideo() {
     setTimeout(() => showResults(), 600);
   } catch (error) {
     console.error('Video processing error:', error);
-    alert('Failed to process video: ' + error.message);
+    alert('Falha ao processar vídeo: ' + error.message);
     resetAll();
   }
 }
@@ -622,8 +662,8 @@ async function runFullPipeline(uploadResult, videoFile) {
   // --- Step 3: ML pipeline + optional MediaPipe extraction ---
   setStepState('step-extract', 'active');
   updateProgress(skipClientPose
-    ? 'Running ML detection + tracking...'
-    : 'Running ML detection + pose extraction...', 15);
+    ? 'Executando detecção ML + rastreamento...'
+    : 'Executando detecção ML + extração de pose...', 15);
 
   const mlPromise = runMlAnalysis(fileName).then((ml) => {
     mlResultsData = ml;
@@ -654,7 +694,7 @@ async function runFullPipeline(uploadResult, videoFile) {
       mediapipeFile,
       (progress) => {
         const overall = 15 + progress * 0.35;
-        updateProgress(`Extracting pose data... (frame ${videoProcessor.currentFrame}/${videoProcessor.totalFrames})`, overall);
+        updateProgress(`Extraindo dados de pose... (quadro ${videoProcessor.currentFrame}/${videoProcessor.totalFrames})`, overall);
       }
     ).then((landmarks) => {
       landmarksData = landmarks;
@@ -668,7 +708,7 @@ async function runFullPipeline(uploadResult, videoFile) {
     const meta = ml.processingMeta || {};
     document.querySelector('#step-extract .step-status').textContent =
       `${meta.uniquePlayersTracked || '?'} players tracked`;
-    updateProgress('Running AI match analysis...', 55);
+    updateProgress('Executando análise de jogo com IA...', 55);
     const metadata = {
       duration: triageResult?.duration || 0,
       width: triageResult?.width || 0,
@@ -686,12 +726,16 @@ async function runFullPipeline(uploadResult, videoFile) {
     techniquePromise = Promise.resolve(null);
   } else {
     techniquePromise = mediapipePromise.then(async (landmarks) => {
-      updateProgress('Running AI technique analysis...', 65);
+      updateProgress('Executando análise técnica com IA...', 65);
+      const bioSummary = videoProcessor.getBiomechanicalSummary();
+      const detectionSummary = videoProcessor.getDetectionSummary();
       return analyzeVideoOnServer(
         gcsUri,
         landmarks,
         'auto-detect',
-        videoProcessor.getMetadata()
+        videoProcessor.getMetadata(),
+        bioSummary,
+        detectionSummary
       );
     }).catch((err) => {
       console.warn('Technique analysis failed (non-fatal):', err.message);
@@ -712,7 +756,7 @@ async function runFullPipeline(uploadResult, videoFile) {
 
   setStepState('step-extract', 'done');
   setStepState('step-analyze', 'done');
-  updateProgress('All analyses complete!', 100);
+  updateProgress('Todas as análises concluídas!', 100);
 }
 
 async function runTriage(fileName) {
@@ -762,11 +806,11 @@ async function uploadVideoToServer(file) {
   return response.json();
 }
 
-async function analyzeVideoOnServer(gcsUri, landmarks, exerciseType, metadata) {
+async function analyzeVideoOnServer(gcsUri, landmarks, exerciseType, metadata, biomechanicalSummary, detectionSummary) {
   const response = await fetch('/api/video/analyze', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ gcsUri, landmarks, exerciseType, metadata, fileName: uploadedFileName }),
+    body: JSON.stringify({ gcsUri, landmarks, exerciseType, metadata, fileName: uploadedFileName, biomechanicalSummary, detectionSummary }),
   });
 
   if (!response.ok) {
@@ -809,8 +853,10 @@ async function saveAnalysis(source, originalName, youtubeVideoId) {
     if (hasMatch && hasTechnique) analysisType = 'both';
     else if (hasMatch) analysisType = 'match';
 
+    const detectionSummary = videoProcessor ? videoProcessor.getDetectionSummary() : null;
+
     const payload = {
-      exerciseType: analysisData?.sections?.DETECTED_TECHNIQUE?.trim() || (hasMatch ? 'Match Analysis' : 'Auto-detected'),
+      exerciseType: analysisData?.sections?.DETECTED_TECHNIQUE?.trim() || (hasMatch ? 'Análise de Jogo' : 'Detecção automática'),
       sport: 'football',
       source: source || 'upload',
       fileName: uploadedFileName || '',
@@ -822,6 +868,7 @@ async function saveAnalysis(source, originalName, youtubeVideoId) {
       rawText: lastRawText || '',
       landmarks: landmarksData || [],
       mlResults: mlResultsData || null,
+      detectionSummary: detectionSummary || null,
       analysisType,
       matchAnalysis: matchAnalysisData || null,
       triageResult: triageResult || null,
@@ -845,14 +892,14 @@ async function saveAnalysis(source, originalName, youtubeVideoId) {
 async function viewSavedAnalysis(id) {
   showSection('processing');
   setStepState('step-upload', 'done');
-  document.querySelector('#step-upload .step-status').textContent = 'From saved';
+  document.querySelector('#step-upload .step-status').textContent = 'Salvo anteriormente';
   setStepState('step-triage', 'done');
-  document.querySelector('#step-triage .step-status').textContent = 'From saved';
+  document.querySelector('#step-triage .step-status').textContent = 'Salvo anteriormente';
   setStepState('step-extract', 'done');
-  document.querySelector('#step-extract .step-status').textContent = 'From saved';
+  document.querySelector('#step-extract .step-status').textContent = 'Salvo anteriormente';
   setStepState('step-analyze', 'done');
-  document.querySelector('#step-analyze .step-status').textContent = 'From saved';
-  updateProgress('Loading saved analysis...', 90);
+  document.querySelector('#step-analyze .step-status').textContent = 'Salvo anteriormente';
+  updateProgress('Carregando análise salva...', 90);
 
   try {
     const response = await fetch(`/api/analysis/${id}`);
@@ -877,11 +924,11 @@ async function viewSavedAnalysis(id) {
       analysisMode = 'technique';
     }
 
-    updateProgress('Analysis loaded!', 100);
+    updateProgress('Análise carregada!', 100);
     setTimeout(() => showResults(), 400);
   } catch (error) {
     console.error('Failed to load saved analysis:', error);
-    alert('Failed to load analysis: ' + error.message);
+    alert('Falha ao carregar análise: ' + error.message);
     resetAll();
   }
 }
@@ -1010,10 +1057,69 @@ function displayResults() {
       }
     }
     setResultContent('result-overall', s.OVERALL_PERFORMANCE);
-    setResultContent('result-form', s.FORM_QUALITY);
+    setResultContent('result-form', s.FORM_QUALITY || s.PHASE_BREAKDOWN);
     setResultContent('result-moments', s.KEY_MOMENTS);
     setResultContent('result-progression', s.PROGRESSION);
     setResultContent('result-improvement', s.IMPROVEMENT_PLAN);
+
+    // Biomechanics sections from parallel analysis
+    if (s.JOINT_ANGLE_ANALYSIS || s.SYMMETRY_ASSESSMENT || s.MOVEMENT_VELOCITY || s.INJURY_RISK) {
+      const bioContainer = document.getElementById('technique-results');
+      const bioCards = [];
+      if (s.JOINT_ANGLE_ANALYSIS) bioCards.push({ icon: 'fas fa-ruler-combined', title: 'Análise de Ângulos Articulares', content: s.JOINT_ANGLE_ANALYSIS });
+      if (s.SYMMETRY_ASSESSMENT) bioCards.push({ icon: 'fas fa-balance-scale', title: 'Avaliação de Simetria', content: s.SYMMETRY_ASSESSMENT });
+      if (s.MOVEMENT_VELOCITY) bioCards.push({ icon: 'fas fa-tachometer-alt', title: 'Velocidade de Movimento', content: s.MOVEMENT_VELOCITY });
+      if (s.INJURY_RISK) bioCards.push({ icon: 'fas fa-exclamation-triangle', title: 'Risco de Lesão', content: s.INJURY_RISK });
+
+      for (const card of bioCards) {
+        const div = document.createElement('div');
+        div.className = 'analysis-card';
+        const h3 = document.createElement('h3');
+        h3.innerHTML = `<i class="${card.icon}"></i> ${card.title}`;
+        const content = document.createElement('div');
+        content.className = 'card-content';
+        content.textContent = card.content;
+        div.appendChild(h3);
+        div.appendChild(content);
+        bioContainer.appendChild(div);
+      }
+    }
+
+    // Object detection stats card (EfficientDet-Lite2)
+    const detSummary = videoProcessor ? videoProcessor.getDetectionSummary() : null;
+    if (detSummary && detSummary.hasObjectDetection) {
+      const detDiv = document.createElement('div');
+      detDiv.className = 'analysis-card';
+      detDiv.innerHTML = `
+        <h3><i class="fas fa-crosshairs"></i> Detecção de Objetos (EfficientDet-Lite2)</h3>
+        <div class="card-content detection-stats-grid">
+          <div class="det-stat">
+            <span class="det-stat-value">${detSummary.ballDetectionRate}%</span>
+            <span class="det-stat-label">Detecção da bola</span>
+          </div>
+          <div class="det-stat">
+            <span class="det-stat-value">${detSummary.framesWithBall}/${detSummary.totalFrames}</span>
+            <span class="det-stat-label">Quadros com bola</span>
+          </div>
+          <div class="det-stat">
+            <span class="det-stat-value">${detSummary.avgPlayersPerFrame}</span>
+            <span class="det-stat-label">Jogadores (média)</span>
+          </div>
+          <div class="det-stat">
+            <span class="det-stat-value">${detSummary.maxPlayersDetected}</span>
+            <span class="det-stat-label">Jogadores (máx)</span>
+          </div>
+          <div class="det-stat">
+            <span class="det-stat-value">${detSummary.avgSpectatorsPerFrame}</span>
+            <span class="det-stat-label">Espectadores (média)</span>
+          </div>
+          <div class="det-stat">
+            <span class="det-stat-value">${detSummary.ballMaxVelocity}</span>
+            <span class="det-stat-label">Vel. máx. bola</span>
+          </div>
+        </div>`;
+      document.getElementById('technique-results').appendChild(detDiv);
+    }
   } else {
     techniqueResults.classList.add('hidden');
   }
@@ -1085,12 +1191,12 @@ function displayMatchResults() {
     const playerEntries = Object.entries(matchAnalysisData.players);
     // Update tab count
     const playersTab = document.querySelector('.match-tab[data-tab="players"]');
-    if (playersTab) playersTab.innerHTML = `<i class="fas fa-users"></i> Players (${playerEntries.length})`;
+    if (playersTab) playersTab.innerHTML = `<i class="fas fa-users"></i> Jogadores (${playerEntries.length})`;
 
     for (const [trackId, playerData] of playerEntries) {
       const stats = mlResultsData?.playerStats?.[trackId] || {};
       const teamId = playerData.teamId ?? stats.teamId ?? -1;
-      const teamName = teamId === 0 ? 'Team A' : teamId === 1 ? 'Team B' : 'Unknown';
+      const teamName = teamId === 0 ? 'Time A' : teamId === 1 ? 'Time B' : 'Desconhecido';
       const teamClass = teamId === 0 ? 'team-a' : teamId === 1 ? 'team-b' : 'team-unknown';
       const sections = playerData.sections || {};
 
@@ -1102,7 +1208,7 @@ function displayMatchResults() {
           <span class="player-id">#${trackId}</span>
           <span class="player-team-badge ${teamClass}">${teamName}</span>
           <button class="btn btn-sm player-highlight-btn" data-track-id="${trackId}">
-            <i class="fas fa-crosshairs"></i> Highlight
+            <i class="fas fa-crosshairs"></i> Destacar
           </button>
         </div>
         <div class="player-card-stats">
@@ -1110,12 +1216,12 @@ function displayMatchResults() {
           <span><i class="fas fa-eye"></i> ${stats.framesVisible || 0} frames</span>
           <span><i class="fas fa-futbol"></i> ${stats.possessionFrames || 0} poss.</span>
         </div>
-        ${sections.PLAYER_ROLE ? `<div class="player-card-section"><strong>Role:</strong> ${sections.PLAYER_ROLE}</div>` : ''}
-        ${sections.PLAYER_ASSESSMENT ? `<div class="player-card-section"><strong>Assessment:</strong> ${sections.PLAYER_ASSESSMENT}</div>` : ''}
+        ${sections.PLAYER_ROLE ? `<div class="player-card-section"><strong>Função:</strong> ${sections.PLAYER_ROLE}</div>` : ''}
+        ${sections.PLAYER_ASSESSMENT ? `<div class="player-card-section"><strong>Avaliação:</strong> ${sections.PLAYER_ASSESSMENT}</div>` : ''}
         <details class="player-card-details">
-          <summary>Full Analysis</summary>
-          ${sections.ACTIONS_PERFORMED ? `<div class="player-card-section"><strong>Actions:</strong><br>${sections.ACTIONS_PERFORMED}</div>` : ''}
-          ${sections.MOVEMENT_QUALITY ? `<div class="player-card-section"><strong>Movement:</strong><br>${sections.MOVEMENT_QUALITY}</div>` : ''}
+          <summary>Análise Completa</summary>
+          ${sections.ACTIONS_PERFORMED ? `<div class="player-card-section"><strong>Ações:</strong><br>${sections.ACTIONS_PERFORMED}</div>` : ''}
+          ${sections.MOVEMENT_QUALITY ? `<div class="player-card-section"><strong>Movimentação:</strong><br>${sections.MOVEMENT_QUALITY}</div>` : ''}
         </details>
       `;
       playersContainer.appendChild(card);
@@ -1153,7 +1259,7 @@ function displayMatchResults() {
   eventsList.innerHTML = '';
   if (events?.timeline && events.timeline.length > 0) {
     const eventsTab = document.querySelector('.match-tab[data-tab="events"]');
-    if (eventsTab) eventsTab.innerHTML = `<i class="fas fa-flag"></i> Events (${events.timeline.length})`;
+    if (eventsTab) eventsTab.innerHTML = `<i class="fas fa-flag"></i> Eventos (${events.timeline.length})`;
 
     for (const evt of events.timeline) {
       const row = document.createElement('div');
@@ -1255,6 +1361,32 @@ function renderMatchCharts() {
       duration: resultVideo.duration || 0,
     }
   );
+
+  matchCharts.renderPlayerHeatmap(
+    document.getElementById('chart-player-heatmap'),
+    {
+      playerPaths: ml.playerPaths || null,
+      playerStats: ml.playerStats || null,
+      selectedPlayerId: null,  // show all players
+    }
+  );
+
+  matchCharts.renderSpeedChart(
+    document.getElementById('chart-speed'),
+    {
+      playerPaths: ml.playerPaths || null,
+      playerStats: ml.playerStats || null,
+      duration: resultVideo.duration || 0,
+    }
+  );
+
+  matchCharts.renderPassNetwork(
+    document.getElementById('chart-pass-network'),
+    {
+      passEvents: ml.passEvents || null,
+      playerStats: ml.playerStats || null,
+    }
+  );
 }
 
 // ========================================
@@ -1268,9 +1400,9 @@ function showPlayerAnalyzeButton(trackId) {
     action.classList.remove('hidden');
     const btn = document.getElementById('analyze-player-btn');
     if (playerAnalysisCache.has(trackId)) {
-      btn.innerHTML = '<i class="fas fa-eye"></i> View Player Analysis';
+      btn.innerHTML = '<i class="fas fa-eye"></i> Ver Análise do Jogador';
     } else {
-      btn.innerHTML = '<i class="fas fa-search-plus"></i> Analyze Player Technique';
+      btn.innerHTML = '<i class="fas fa-search-plus"></i> Analisar Técnica do Jogador';
     }
   } else {
     action.classList.add('hidden');
@@ -1294,7 +1426,7 @@ async function analyzePlayerTechnique(trackId) {
   const content = document.getElementById('panel-player-content');
   const playerIdSpan = document.getElementById('panel-player-id');
   playerIdSpan.textContent = `#${trackId}`;
-  content.innerHTML = '<div class="panel-loading"><i class="fas fa-spinner fa-spin"></i> Analyzing player technique...</div>';
+  content.innerHTML = '<div class="panel-loading"><i class="fas fa-spinner fa-spin"></i> Analisando técnica do jogador...</div>';
   panel.classList.remove('hidden');
   requestAnimationFrame(() => panel.classList.add('visible'));
 
@@ -1327,7 +1459,7 @@ async function analyzePlayerTechnique(trackId) {
 
     // Update button text
     const btn = document.getElementById('analyze-player-btn');
-    if (btn) btn.innerHTML = '<i class="fas fa-eye"></i> View Player Analysis';
+    if (btn) btn.innerHTML = '<i class="fas fa-eye"></i> Ver Análise do Jogador';
   } catch (error) {
     console.error('Player technique analysis error:', error);
     content.innerHTML = `<div class="panel-loading"><i class="fas fa-exclamation-circle" style="color: var(--error)"></i> ${escapeHtml(error.message)}</div>`;
@@ -1360,19 +1492,19 @@ function showPlayerAnalysisPanel(trackId, analysis) {
   requestAnimationFrame(() => panel.classList.add('visible'));
 
   if (!analysis || !analysis.sections) {
-    content.innerHTML = '<div class="panel-loading">No analysis data available.</div>';
+    content.innerHTML = '<div class="panel-loading">Nenhum dado de análise disponível.</div>';
     return;
   }
 
   const s = analysis.sections;
   const sectionOrder = [
-    ['OVERALL_RATING', 'Overall Rating', 'fas fa-star'],
-    ['TECHNIQUE_ASSESSMENT', 'Technique Assessment', 'fas fa-futbol'],
-    ['PHYSICAL_ANALYSIS', 'Physical Analysis', 'fas fa-running'],
-    ['MOVEMENT_QUALITY', 'Movement Quality', 'fas fa-route'],
-    ['TACTICAL_CONTRIBUTION', 'Tactical Contribution', 'fas fa-chess'],
-    ['STRENGTHS', 'Strengths', 'fas fa-thumbs-up'],
-    ['AREAS_FOR_IMPROVEMENT', 'Areas for Improvement', 'fas fa-arrow-up'],
+    ['OVERALL_RATING', 'Avaliação Geral', 'fas fa-star'],
+    ['TECHNIQUE_ASSESSMENT', 'Avaliação Técnica', 'fas fa-futbol'],
+    ['PHYSICAL_ANALYSIS', 'Análise Física', 'fas fa-running'],
+    ['MOVEMENT_QUALITY', 'Qualidade de Movimento', 'fas fa-route'],
+    ['TACTICAL_CONTRIBUTION', 'Contribuição Tática', 'fas fa-chess'],
+    ['STRENGTHS', 'Pontos Fortes', 'fas fa-thumbs-up'],
+    ['AREAS_FOR_IMPROVEMENT', 'Pontos de Melhoria', 'fas fa-arrow-up'],
   ];
 
   let html = '';
@@ -1390,7 +1522,7 @@ function showPlayerAnalysisPanel(trackId, analysis) {
     }
   }
 
-  content.innerHTML = html || '<div class="panel-loading">No sections found in analysis.</div>';
+  content.innerHTML = html || '<div class="panel-loading">Nenhuma seção encontrada na análise.</div>';
 }
 
 function closePlayerAnalysisPanel() {
@@ -1425,14 +1557,14 @@ function startFocusMode(trackId) {
   const panel = document.getElementById('focus-panel');
   document.getElementById('focus-player-id').textContent = `#${trackId}`;
   document.getElementById('focus-cards').innerHTML = '';
-  document.getElementById('focus-status').textContent = 'Watching...';
+  document.getElementById('focus-status').textContent = 'Observando...';
   panel.classList.remove('hidden');
   requestAnimationFrame(() => panel.classList.add('visible'));
 
   // Update button state
   const btn = document.getElementById('focus-mode-btn');
   btn.classList.add('active');
-  btn.innerHTML = '<i class="fas fa-stop"></i> Stop Focus';
+  btn.innerHTML = '<i class="fas fa-stop"></i> Parar Foco';
 
   // Start video if paused
   if (resultVideo.paused) resultVideo.play();
@@ -1448,10 +1580,10 @@ function stopFocusMode() {
   // Update button
   const btn = document.getElementById('focus-mode-btn');
   btn.classList.remove('active');
-  btn.innerHTML = '<i class="fas fa-crosshairs"></i> Focus & Follow';
+  btn.innerHTML = '<i class="fas fa-crosshairs"></i> Foco e Rastreio';
 
   document.getElementById('focus-status').textContent =
-    `Complete — ${focusInsights.length} insights`;
+    `Completo — ${focusInsights.length} observações`;
 }
 
 async function triggerFocusAnalysis(startTime, endTime) {
@@ -1650,7 +1782,7 @@ function buildEventStrip(timeline) {
 function setResultContent(elementId, text) {
   const el = document.getElementById(elementId);
   if (el) {
-    el.textContent = text || 'No data available';
+    el.textContent = text || 'Dados não disponíveis';
   }
 }
 
@@ -1726,7 +1858,7 @@ function downloadReport() {
   const hasMatch = !!matchAnalysisData;
   const hasTechnique = !!(analysisData && analysisData.sections);
   const report = {
-    exerciseType: analysisData?.sections?.DETECTED_TECHNIQUE?.trim() || (hasMatch ? 'Match Analysis' : 'Auto-detected'),
+    exerciseType: analysisData?.sections?.DETECTED_TECHNIQUE?.trim() || (hasMatch ? 'Análise de Jogo' : 'Detecção automática'),
     sport: 'football',
     analysisType: hasMatch && hasTechnique ? 'both' : (hasMatch ? 'match' : 'technique'),
     analysisDate: new Date().toISOString(),
@@ -1787,7 +1919,7 @@ function resetAll() {
   if (focusModeBtn) {
     focusModeBtn.style.display = 'none';
     focusModeBtn.classList.remove('active');
-    focusModeBtn.innerHTML = '<i class="fas fa-crosshairs"></i> Focus & Follow';
+    focusModeBtn.innerHTML = '<i class="fas fa-crosshairs"></i> Foco e Rastreio';
   }
   // Hide view tabs
   const viewTabs = document.getElementById('results-view-tabs');
@@ -1806,9 +1938,9 @@ function resetAll() {
   // Reset pipeline steps
   document.querySelectorAll('.pipeline-step').forEach((step) => {
     step.classList.remove('active', 'done');
-    step.querySelector('.step-status').textContent = 'Waiting...';
+    step.querySelector('.step-status').textContent = 'Aguardando...';
   });
-  updateProgress('Preparing...', 0);
+  updateProgress('Preparando...', 0);
 
   showSection('upload');
 }
@@ -1827,8 +1959,8 @@ function setStepState(stepId, state) {
   el.classList.remove('active', 'done');
   el.classList.add(state);
   const status = el.querySelector('.step-status');
-  if (state === 'active') status.textContent = 'In progress...';
-  if (state === 'done') status.textContent = 'Complete';
+  if (state === 'active') status.textContent = 'Em andamento...';
+  if (state === 'done') status.textContent = 'Concluído';
 }
 
 function updateProgress(stage, pct) {

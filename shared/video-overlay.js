@@ -114,6 +114,11 @@ class VideoOverlay {
       { name: 'L.Knee', points: [23, 25, 27], idealRange: [60, 170] },
       { name: 'R.Hip', points: [12, 24, 26], idealRange: [80, 170] },
       { name: 'L.Hip', points: [11, 23, 25], idealRange: [80, 170] },
+      { name: 'R.Shoulder', points: [14, 12, 24], idealRange: [20, 160] },
+      { name: 'L.Shoulder', points: [13, 11, 23], idealRange: [20, 160] },
+      { name: 'R.Ankle', points: [26, 28, 32], idealRange: [70, 140] },
+      { name: 'L.Ankle', points: [25, 27, 31], idealRange: [70, 140] },
+      { name: 'Trunk', points: [12, 24, 26], idealRange: [150, 180], vertexIdx: 1 },  // trunk lean angle
     ];
   }
 
