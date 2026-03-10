@@ -455,13 +455,23 @@ def run_yolo_detection(frames, video_meta):
                     "trackId": track_id,
                 })
             elif cls == 32:  # sports ball
+                ball_w = bbox[2] - bbox[0]
+                ball_h = bbox[3] - bbox[1]
+                # Filter out false positives: real ball is tiny (<5% of frame)
+                if ball_w > 0.05 or ball_h > 0.08:
+                    continue
+                # Keep highest-confidence ball per frame
+                if ball is not None and conf <= ball["confidence"]:
+                    continue
                 ball = {
                     "bbox": bbox,
                     "confidence": round(conf, 3),
                 }
-                # Track ball center for trajectory
+                # Track ball center for trajectory (remove previous if overwriting)
                 cx = round((bbox[0] + bbox[2]) / 2, 4)
                 cy = round((bbox[1] + bbox[3]) / 2, 4)
+                # Remove any prior ball entry for this timestamp
+                ball_trajectory = [b for b in ball_trajectory if b.get("timestamp") != timestamp]
                 ball_trajectory.append({
                     "timestamp": timestamp,
                     "x": cx,
@@ -478,10 +488,13 @@ def run_yolo_detection(frames, video_meta):
     return detections, ball_trajectory
 
 
-def interpolate_ball_trajectory(detections, ball_trajectory):
+def interpolate_ball_trajectory(detections, ball_trajectory, max_gap_seconds=3.0, max_jump=0.3):
     """Fill gaps in ball trajectory using linear interpolation.
     Ball is typically detected in only 40-60% of frames. This fills the gaps
     so possession tracking and ball trail rendering are continuous.
+
+    max_gap_seconds: don't interpolate across gaps longer than this (camera cuts, replays)
+    max_jump: don't interpolate if the ball jumps more than this fraction of the frame
     """
     if len(ball_trajectory) < 2:
         return ball_trajectory
@@ -496,22 +509,53 @@ def interpolate_ball_trajectory(detections, ball_trajectory):
 
     # Build arrays of known positions for interpolation
     known_times = sorted(ball_by_time.keys())
-    known_x = [ball_by_time[t][0] for t in known_times]
-    known_y = [ball_by_time[t][1] for t in known_times]
 
-    # Interpolate for all frame timestamps within the range of known positions
-    min_t, max_t = known_times[0], known_times[-1]
+    # Build segments of continuous detections (break at large gaps or teleportation)
+    segments = []
+    current_seg = [known_times[0]]
+    for i in range(1, len(known_times)):
+        t_prev, t_curr = known_times[i - 1], known_times[i]
+        gap = t_curr - t_prev
+        dx = abs(ball_by_time[t_curr][0] - ball_by_time[t_prev][0])
+        dy = abs(ball_by_time[t_curr][1] - ball_by_time[t_prev][1])
+        if gap > max_gap_seconds or dx > max_jump or dy > max_jump:
+            segments.append(current_seg)
+            current_seg = [t_curr]
+        else:
+            current_seg.append(t_curr)
+    segments.append(current_seg)
+
+    # Interpolate within each segment only
     interpolated = []
-    for t in all_timestamps:
-        if t in ball_by_time:
+    for seg_times in segments:
+        if len(seg_times) < 2:
+            t = seg_times[0]
             interpolated.append({"timestamp": t, "x": ball_by_time[t][0], "y": ball_by_time[t][1]})
-        elif min_t < t < max_t:
-            # Linear interpolation
-            x = round(float(np.interp(t, known_times, known_x)), 4)
-            y = round(float(np.interp(t, known_times, known_y)), 4)
-            interpolated.append({"timestamp": t, "x": x, "y": y, "interpolated": True})
+            continue
 
-    return interpolated
+        seg_x = [ball_by_time[t][0] for t in seg_times]
+        seg_y = [ball_by_time[t][1] for t in seg_times]
+        seg_min, seg_max = seg_times[0], seg_times[-1]
+
+        for t in all_timestamps:
+            if t < seg_min or t > seg_max:
+                continue
+            if t in ball_by_time:
+                interpolated.append({"timestamp": t, "x": ball_by_time[t][0], "y": ball_by_time[t][1]})
+            else:
+                x = round(float(np.interp(t, seg_times, seg_x)), 4)
+                y = round(float(np.interp(t, seg_times, seg_y)), 4)
+                interpolated.append({"timestamp": t, "x": x, "y": y, "interpolated": True})
+
+    # Deduplicate (a timestamp might appear in multiple segments' boundaries)
+    seen = set()
+    unique = []
+    for b in interpolated:
+        if b["timestamp"] not in seen:
+            seen.add(b["timestamp"])
+            unique.append(b)
+
+    return sorted(unique, key=lambda b: b["timestamp"])
 
 
 def extract_color_histogram(crop_bgr):
