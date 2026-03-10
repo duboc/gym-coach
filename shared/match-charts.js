@@ -1,18 +1,20 @@
 // Match Charts — SVG-based temporal data visualizations for match analysis
 // All rendering uses inline SVG via innerHTML — no external chart libraries
 
-const TEAM_A_COLOR = 'rgba(255, 58, 94, 0.8)';
-const TEAM_A_COLOR_LIGHT = 'rgba(255, 58, 94, 0.3)';
-const TEAM_B_COLOR = 'rgba(58, 134, 255, 0.8)';
-const TEAM_B_COLOR_LIGHT = 'rgba(58, 134, 255, 0.3)';
-const BALL_COLOR = '#ffd700';
+const TEAM_A_COLOR = '#d93025';
+const TEAM_A_COLOR_LIGHT = 'rgba(217, 48, 37, 0.25)';
+const TEAM_B_COLOR = '#1a73e8';
+const TEAM_B_COLOR_LIGHT = 'rgba(26, 115, 232, 0.25)';
+const BALL_COLOR = '#f9ab00';
 const EVENT_COLORS = {
-  ball_contact: '#ffd700',
-  direction_change: '#a29bfe',
-  gemini: '#fd79a8',
-  pass: '#30c39e',
-  turnover: '#ff3a5e',
+  ball_contact: '#f9ab00',
+  direction_change: '#9334e6',
+  gemini: '#e8710a',
+  pass: '#1e8e3e',
+  turnover: '#d93025',
 };
+const TEXT_COLOR = '#5f6368';
+const LINE_COLOR = '#dadce0';
 
 export default class MatchCharts {
   constructor({ seekVideo, duration }) {
@@ -109,7 +111,7 @@ export default class MatchCharts {
     for (let i = 0; i < numBins; i += labelStep) {
       const t = i * binSize;
       const x = xScale(i);
-      timeLabels += `<text x="${x}" y="${H - 5}" text-anchor="middle" fill="#b8c5d6" font-size="11">${this._fmtTime(t)}</text>`;
+      timeLabels += `<text x="${x}" y="${H - 5}" text-anchor="middle" fill="${TEXT_COLOR}" font-size="11">${this._fmtTime(t)}</text>`;
     }
 
     container.innerHTML = `
@@ -117,21 +119,21 @@ export default class MatchCharts {
         <h4><i class="fas fa-water"></i> Possession Flow</h4>
         <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" class="mc-svg mc-possession-flow" data-duration="${dur}">
           <!-- Midline -->
-          <line x1="${PAD.left}" y1="${yMid}" x2="${W - PAD.right}" y2="${yMid}" stroke="#b8c5d6" stroke-width="1" stroke-dasharray="4 3" opacity="0.5"/>
+          <line x1="${PAD.left}" y1="${yMid}" x2="${W - PAD.right}" y2="${yMid}" stroke="${LINE_COLOR}" stroke-width="1" stroke-dasharray="4 3" opacity="0.5"/>
           <!-- Team A area -->
           <path d="${pathA}" fill="${TEAM_A_COLOR_LIGHT}" stroke="${TEAM_A_COLOR}" stroke-width="1.5"/>
           <!-- Team B area -->
           <path d="${pathB}" fill="${TEAM_B_COLOR_LIGHT}" stroke="${TEAM_B_COLOR}" stroke-width="1.5"/>
           <!-- Playhead -->
-          <line class="mc-playhead" data-chart="possession" x1="${PAD.left}" y1="${PAD.top}" x2="${PAD.left}" y2="${H - PAD.bottom}" stroke="#ffffff" stroke-width="1.5" opacity="0.8"/>
+          <line class="mc-playhead" data-chart="possession" x1="${PAD.left}" y1="${PAD.top}" x2="${PAD.left}" y2="${H - PAD.bottom}" stroke="#202124" stroke-width="1.5" opacity="0.7"/>
           <!-- Click area -->
           <rect x="${PAD.left}" y="${PAD.top}" width="${plotW}" height="${plotH}" fill="transparent" class="mc-click-area" style="cursor:pointer"/>
           ${timeLabels}
           <!-- Legend -->
           <rect x="${PAD.left}" y="4" width="10" height="10" rx="2" fill="${TEAM_A_COLOR}"/>
-          <text x="${PAD.left + 14}" y="13" fill="#b8c5d6" font-size="11">Team A</text>
+          <text x="${PAD.left + 14}" y="13" fill="${TEXT_COLOR}" font-size="11">Team A</text>
           <rect x="${PAD.left + 70}" y="4" width="10" height="10" rx="2" fill="${TEAM_B_COLOR}"/>
-          <text x="${PAD.left + 84}" y="13" fill="#b8c5d6" font-size="11">Team B</text>
+          <text x="${PAD.left + 84}" y="13" fill="${TEXT_COLOR}" font-size="11">Team B</text>
         </svg>
       </div>
     `;
@@ -189,10 +191,10 @@ export default class MatchCharts {
 
       bars += `
         <g class="mc-player-bar" data-first-seen="${p.firstSeen}" style="cursor:pointer">
-          <text x="${PAD.left - 8}" y="${y + barH / 2 + 4}" text-anchor="end" fill="#b8c5d6" font-size="12" font-weight="600">#${p.id} (${teamLabel})</text>
+          <text x="${PAD.left - 8}" y="${y + barH / 2 + 4}" text-anchor="end" fill="${TEXT_COLOR}" font-size="12" font-weight="600">#${p.id} (${teamLabel})</text>
           <rect x="${PAD.left}" y="${y}" width="${barW}" height="${barH}" rx="4" fill="${teamColorLight}"/>
           <rect x="${PAD.left}" y="${y}" width="${possW}" height="${barH}" rx="4" fill="${teamColor}"/>
-          <text x="${PAD.left + barW + 6}" y="${y + barH / 2 + 4}" fill="#b8c5d6" font-size="11">${p.totalDistanceM > 0 ? `${p.totalDistanceM}m · ${p.topSpeedKmh}km/h` : `${p.framesVisible}f`}</text>
+          <text x="${PAD.left + barW + 6}" y="${y + barH / 2 + 4}" fill="${TEXT_COLOR}" font-size="11">${p.totalDistanceM > 0 ? `${p.totalDistanceM}m · ${p.topSpeedKmh}km/h` : `${p.framesVisible}f`}</text>
           <title>Player #${p.id} — ${p.framesVisible} frames, ${p.possessionFrames} poss, ${p.totalDistanceM}m covered, top ${p.topSpeedKmh}km/h</title>
         </g>
       `;
@@ -205,9 +207,9 @@ export default class MatchCharts {
           ${bars}
           <!-- Legend -->
           <rect x="${PAD.left}" y="${H - 8}" width="8" height="8" rx="2" fill="${TEAM_A_COLOR}"/>
-          <text x="${PAD.left + 12}" y="${H - 1}" fill="#b8c5d6" font-size="10">possession</text>
+          <text x="${PAD.left + 12}" y="${H - 1}" fill="${TEXT_COLOR}" font-size="10">possession</text>
           <rect x="${PAD.left + 80}" y="${H - 8}" width="8" height="8" rx="2" fill="${TEAM_A_COLOR_LIGHT}"/>
-          <text x="${PAD.left + 92}" y="${H - 1}" fill="#b8c5d6" font-size="10">visible</text>
+          <text x="${PAD.left + 92}" y="${H - 1}" fill="${TEXT_COLOR}" font-size="10">visible</text>
         </svg>
       </div>
     `;
@@ -310,12 +312,12 @@ export default class MatchCharts {
     const legendY = H - 18;
     const legend = `
       <circle cx="${pitchPad + 6}" cy="${legendY}" r="5" fill="${TEAM_A_COLOR}"/>
-      <text x="${pitchPad + 16}" y="${legendY + 4}" fill="#b8c5d6" font-size="11">Team A</text>
+      <text x="${pitchPad + 16}" y="${legendY + 4}" fill="${TEXT_COLOR}" font-size="11">Team A</text>
       <circle cx="${pitchPad + 76}" cy="${legendY}" r="5" fill="${TEAM_B_COLOR}"/>
-      <text x="${pitchPad + 86}" y="${legendY + 4}" fill="#b8c5d6" font-size="11">Team B</text>
+      <text x="${pitchPad + 86}" y="${legendY + 4}" fill="${TEXT_COLOR}" font-size="11">Team B</text>
       ${hasBall ? `
         <line x1="${pitchPad + 146}" y1="${legendY}" x2="${pitchPad + 162}" y2="${legendY}" stroke="${BALL_COLOR}" stroke-width="2"/>
-        <text x="${pitchPad + 168}" y="${legendY + 4}" fill="#b8c5d6" font-size="11">Ball</text>
+        <text x="${pitchPad + 168}" y="${legendY + 4}" fill="${TEXT_COLOR}" font-size="11">Ball</text>
       ` : ''}
     `;
 
@@ -431,7 +433,7 @@ export default class MatchCharts {
     for (let i = 0; i < numBins; i += labelStep) {
       const t = i * binSize;
       const x = PAD.left + (i / numBins) * plotW + barW / 2;
-      timeLabels += `<text x="${x}" y="${H - 5}" text-anchor="middle" fill="#b8c5d6" font-size="11">${this._fmtTime(t)}</text>`;
+      timeLabels += `<text x="${x}" y="${H - 5}" text-anchor="middle" fill="${TEXT_COLOR}" font-size="11">${this._fmtTime(t)}</text>`;
     }
 
     container.innerHTML = `
@@ -439,22 +441,22 @@ export default class MatchCharts {
         <h4><i class="fas fa-chart-bar"></i> Events Distribution</h4>
         <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" class="mc-svg mc-events-dist" data-duration="${dur}">
           <!-- Baseline -->
-          <line x1="${PAD.left}" y1="${PAD.top + plotH}" x2="${W - PAD.right}" y2="${PAD.top + plotH}" stroke="#2d3a56" stroke-width="1"/>
+          <line x1="${PAD.left}" y1="${PAD.top + plotH}" x2="${W - PAD.right}" y2="${PAD.top + plotH}" stroke="${LINE_COLOR}" stroke-width="1"/>
           ${barsMarkup}
           <!-- Playhead -->
-          <line class="mc-playhead" data-chart="events" x1="${PAD.left}" y1="${PAD.top}" x2="${PAD.left}" y2="${PAD.top + plotH}" stroke="#ffffff" stroke-width="1.5" opacity="0.8"/>
+          <line class="mc-playhead" data-chart="events" x1="${PAD.left}" y1="${PAD.top}" x2="${PAD.left}" y2="${PAD.top + plotH}" stroke="#202124" stroke-width="1.5" opacity="0.7"/>
           ${timeLabels}
           <!-- Legend -->
           <rect x="${PAD.left}" y="4" width="10" height="10" rx="2" fill="${EVENT_COLORS.ball_contact}"/>
-          <text x="${PAD.left + 14}" y="13" fill="#b8c5d6" font-size="10">ball contact</text>
+          <text x="${PAD.left + 14}" y="13" fill="${TEXT_COLOR}" font-size="10">ball contact</text>
           <rect x="${PAD.left + 95}" y="4" width="10" height="10" rx="2" fill="${EVENT_COLORS.direction_change}"/>
-          <text x="${PAD.left + 109}" y="13" fill="#b8c5d6" font-size="10">dir change</text>
+          <text x="${PAD.left + 109}" y="13" fill="${TEXT_COLOR}" font-size="10">dir change</text>
           <rect x="${PAD.left + 180}" y="4" width="10" height="10" rx="2" fill="${EVENT_COLORS.gemini}"/>
-          <text x="${PAD.left + 194}" y="13" fill="#b8c5d6" font-size="10">AI events</text>
+          <text x="${PAD.left + 194}" y="13" fill="${TEXT_COLOR}" font-size="10">AI events</text>
           <rect x="${PAD.left + 255}" y="4" width="10" height="10" rx="2" fill="${EVENT_COLORS.pass}"/>
-          <text x="${PAD.left + 269}" y="13" fill="#b8c5d6" font-size="10">pass</text>
+          <text x="${PAD.left + 269}" y="13" fill="${TEXT_COLOR}" font-size="10">pass</text>
           <rect x="${PAD.left + 305}" y="4" width="10" height="10" rx="2" fill="${EVENT_COLORS.turnover}"/>
-          <text x="${PAD.left + 319}" y="13" fill="#b8c5d6" font-size="10">turnover</text>
+          <text x="${PAD.left + 319}" y="13" fill="${TEXT_COLOR}" font-size="10">turnover</text>
         </svg>
       </div>
     `;
